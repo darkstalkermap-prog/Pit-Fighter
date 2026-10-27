@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'Browser/**'
+      - 'package.json'
       - 'Scripts/build_browser.py'
       - '.github/workflows/pages.yml'
   workflow_dispatch:

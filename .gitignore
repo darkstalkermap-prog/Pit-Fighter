@@ -1,8 +1,5 @@
-Binaries/
-DerivedDataCache/
-Intermediate/
-Saved/
-.vs/
-*.sln
-*.suo
-Content/Maps/Prototype.umap
+node_modules/
+_site/
+__pycache__/
+*.pyc
+.DS_Store
