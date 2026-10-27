@@ -2,10 +2,18 @@
   "name": "pitfall-arena",
   "version": "0.1.0",
   "private": true,
-  "description": "Engine-free medieval arena combat for desktop browsers",
+  "description": "3D third-person medieval arena combat for web browsers",
   "scripts": {
     "test": "npm --prefix Browser test",
-    "build": "python3 Scripts/build_browser.py",
-    "start": "python3 -m http.server 8000 --bind 127.0.0.1 --directory Browser"
+    "build": "node Scripts/build_browser.mjs",
+    "start": "npm run build && python3 -m http.server 8000 --bind 127.0.0.1 --directory _site",
+    "test:browser": "node Scripts/browser_smoke.mjs"
+  },
+  "dependencies": {
+    "three": "0.180.0"
+  },
+  "devDependencies": {
+    "esbuild": "0.25.12",
+    "playwright": "1.56.1"
   }
 }

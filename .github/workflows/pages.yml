@@ -6,7 +6,10 @@ on:
     paths:
       - 'Browser/**'
       - 'package.json'
-      - 'Scripts/build_browser.py'
+      - 'package-lock.json'
+      - 'index.html'
+      - 'Scripts/browser_smoke.mjs'
+      - 'Scripts/build_browser.mjs'
       - '.github/workflows/pages.yml'
   workflow_dispatch:
 
@@ -25,18 +28,16 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
+      - name: Install locked dependencies
+        run: npm ci
       - name: Test combat
-        working-directory: Browser
         run: npm test
-      - name: Build standalone site
-        run: |
-          python3 Scripts/build_browser.py
-          mkdir -p _site
-          cp Browser/Play-Pitfall.html _site/index.html
-          touch _site/.nojekyll
+      - name: Build standalone 3D site
+        run: npm run build
+      - name: Install test browser
+        run: npx playwright install --with-deps chromium
+      - name: Test 3D browser game
+        run: npm run test:browser
       - uses: actions/upload-pages-artifact@v3
         with:
           path: _site

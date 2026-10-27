@@ -1,1 +1,9 @@
-{"name":"pitfall-browser-prototype","private":true,"type":"module","scripts":{"test":"node --test combat.test.mjs","start":"python3 -m http.server 8000 --bind 0.0.0.0"}}
+{
+  "name": "pitfall-browser-prototype",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test combat.test.mjs",
+    "start": "npm --prefix .. start"
+  }
+}

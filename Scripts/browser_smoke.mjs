@@ -1,0 +1,34 @@
+import {chromium} from 'playwright';
+import assert from 'node:assert/strict';
+import {createServer} from 'node:http';
+import {readFile,mkdir} from 'node:fs/promises';
+const html=await readFile(new URL('../_site/index.html',import.meta.url));
+const server=createServer((req,res)=>{if(req.url==='/Pit-Fighter/'){res.writeHead(200,{'Content-Type':'text/html'});res.end(html);}else{res.writeHead(404);res.end();}});
+await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+let browser;
+try{
+ browser=await chromium.launch({headless:true,...(process.env.CHROMIUM_PATH?{executablePath:process.env.CHROMIUM_PATH}:{}),args:['--no-sandbox','--use-angle=swiftshader','--enable-unsafe-swiftshader']});
+ const page=await browser.newPage({viewport:{width:1280,height:900}}),errors=[];
+ page.on('pageerror',e=>errors.push(e.message));page.on('console',msg=>{if(msg.type()==='error'&&!msg.text().includes('favicon'))errors.push(msg.text());});
+ await page.goto(`http://127.0.0.1:${server.address().port}/Pit-Fighter/`);
+ await page.waitForTimeout(1500);
+ assert.equal(await page.locator('#play').isEnabled(),true,'WebGL initializes');
+ assert.ok(await page.evaluate(()=>!!document.querySelector('canvas').getContext('webgl2')),'Uses actual WebGL 2');
+ await mkdir(new URL('../test-results/',import.meta.url),{recursive:true});
+ await page.screenshot({path:new URL('../test-results/menu.png',import.meta.url).pathname});
+ await page.click('#play');await page.waitForTimeout(300);
+ assert.ok(await page.locator('#overlay').evaluate(el=>el.classList.contains('hidden')));
+ await page.keyboard.down('KeyW');await page.waitForTimeout(650);await page.keyboard.up('KeyW');
+ await page.keyboard.down('ArrowRight');await page.waitForTimeout(200);await page.keyboard.up('ArrowRight');
+ await page.mouse.move(640,420);await page.mouse.down();await page.waitForTimeout(450);await page.mouse.up();
+ await page.waitForFunction(()=>document.querySelector('#status').textContent==='HEAVY STRIKE');
+ assert.ok(Number(await page.locator('#staminaText').textContent())<=68,'Heavy attack costs stamina');
+ await page.waitForFunction(()=>document.querySelector('#status').textContent==='READY');
+ await page.mouse.down({button:'right'});await page.waitForFunction(()=>document.querySelector('#status').textContent==='GUARDING');await page.mouse.up({button:'right'});
+ await page.screenshot({path:new URL('../test-results/playing.png',import.meta.url).pathname});
+ await page.evaluate(()=>document.querySelector('#pause').click());
+ const time=await page.locator('#timer').textContent();await page.waitForTimeout(1100);assert.equal(await page.locator('#timer').textContent(),time,'Pause freezes match');
+ await page.click('#play');await page.waitForFunction(t=>document.querySelector('#timer').textContent!==t,time);
+ assert.deepEqual(errors,[],'No browser errors');
+ console.log('PASS: WebGL 2, Pages subpath, start, movement/turn input, heavy attack, stamina, block, pause/resume, no browser errors.');
+}finally{await browser?.close();await new Promise(resolve=>server.close(resolve));}
