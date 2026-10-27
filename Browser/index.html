@@ -1,0 +1,9 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>PITFALL · The Blood Pit</title><link rel="stylesheet" href="style.css"></head><body>
+<canvas id="arena" aria-label="Arena game controlled using WASD and mouse"></canvas>
+<header><a class="brand" href="./">PITFALL<span>ARENA OF BLOOD</span></a><div class="tag">PROTOTYPE 01 <i></i> OFFLINE ARENA</div><button id="pause">PAUSE <kbd>ESC</kbd></button></header>
+<div id="match"><span>THE BLOOD PIT</span><strong id="timer">03:00</strong><small id="score">0 / 8 ELIMINATIONS</small></div>
+<div id="feed" aria-live="polite"></div>
+<section id="hud"><div class="crest">♜</div><div class="vitals"><div class="label">KNIGHT <span id="healthText">150 / 150</span></div><div class="bar"><div id="health"></div></div><div class="bar stamina"><div id="stamina"></div></div><div class="label subtle">STAMINA <span id="staminaText">100</span></div></div><div id="status">READY</div></section>
+<footer><span><kbd>W A S D</kbd> MOVE</span><span><kbd>MOUSE</kbd> AIM</span><span><kbd>LMB</kbd> ATTACK · HOLD FOR HEAVY</span><span><kbd>RMB</kbd> BLOCK</span></footer>
+<div id="overlay"><div class="menu"><div class="eyebrow">A KNIGHT. A SWORD. NO WAY OUT.</div><h1>THE BLOOD<br><em>PIT</em></h1><p id="description">Step into the sand. Face three rival knights in a stripped-back combat arena. Timing wins fights.</p><div class="rules"><span>01 <b>8 eliminations to win</b></span><span>02 <b>3 minutes on the clock</b></span><span>03 <b>Guard your stamina</b></span></div><button id="play">ENTER THE ARENA <span>→</span></button><small id="notice">Single-player • AI opponents • No download or account</small></div></div>
+<script type="module" src="game.mjs"></script></body></html>
