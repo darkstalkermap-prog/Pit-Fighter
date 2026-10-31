@@ -61,7 +61,14 @@ export const BESTIARY = [
   c('elderhorn', 'Elderhorn the Ancient Stag', 'forest', 12, 'quad', 2.8, '#6a5a3a', '#bfffa0', 'hostile', { heartfire: 1, hide: 4, wildEssence: 3 }, { elite: true, antlers: true, glow: true, speed: 8 }),
 ];
 
-export const CREATURE = Object.fromEntries(BESTIARY.map(b => [b.id, b]));
+// The people of the human villages. Hostile to any witch they recognise; fooled by Glamour.
+export const HUMANS = [
+  c('villager', 'Villager', 'human', 3, 'human', 1, '#7a6a52', '#e2bfa0', 'timid', { silver: 3, bread: 1 }, { speed: 6.5, human: true }),
+  c('hunter', 'Witch Hunter', 'human', 8, 'human', 1.05, '#2a2a2e', '#e2bfa0', 'provoked', { silver: 8, bread: 1 }, { speed: 7.5, human: true, hat: true, tough: 1.3 }),
+  c('merchant', 'Merchant', 'human', 4, 'human', 1.1, '#6a3a6a', '#e2bfa0', 'timid', { silver: 30 }, { speed: 0, human: true }),
+];
+
+export const CREATURE = Object.fromEntries([...BESTIARY, ...HUMANS].map(b => [b.id, b]));
 
 // The boss at the Crown. Warded: takes 10% damage until the Grand Rite breaks the ward.
 export const BOSS = { id: 'unwitch', name: 'The Unwitch', level: 15, hp: 6000, damage: 26, plan: 'biped', size: 3.2, color: '#14101c', accent: '#ff3c6e', xp: 3000 };

@@ -31,7 +31,7 @@ try{
  await page.keyboard.down('KeyW');await page.waitForTimeout(800);await page.keyboard.up('KeyW');
  const after=await page.evaluate(()=>({x:__coven.state.player.x,z:__coven.state.player.z}));
  assert.ok(Math.hypot(after.x-before.x,after.z-before.z)>1,'Player walks');
- assert.equal(await page.locator('#spells .spell').count(),7,'Spell bar shows class and coven spells');
+ assert.equal(await page.locator('#spells .spell').count(),9,'Spell bar shows class and coven spells');
  assert.match(await page.locator('#prompt').textContent()+await page.locator('#questTitle').textContent(),/Elder/,'Elder quest is shown');
 
  // Found a village and brew at the cauldron through the real UI.
@@ -57,10 +57,47 @@ try{
  await page.evaluate(()=>{const p=__coven.state.player;p.coven.push('hex');__coven.allies.push({id:999,ally:'witch',cls:'hex',x:p.x+2,z:p.z,y:p.y,yaw:0,life:Infinity,cooldown:0,walk:0});__coven.cast(3);});
  assert.equal(await page.evaluate(()=>__coven.state.player.inv.covenInk),1,'Binding Circle cast with two witches');
 
+ // Human villages: walking in as a witch raises the alarm.
+ const goTo=(x,z)=>page.evaluate(([x,z])=>{const p=__coven.state.player;p.x=x;p.z=z;p.y=__coven.world.ground(x,z);},[x,z]);
+ const [v1,v2]=await page.evaluate(()=>__coven.humanVillages.slice(0,2).map(v=>({id:v.id,x:v.x,z:v.z,stall:v.layout.stall,name:v.name})));
+ await page.evaluate(()=>{const p=__coven.state.player;p.hp=p.maxHp=5000;});
+ await goTo(v1.x+5,v1.z+5);await page.waitForTimeout(600);
+ assert.ok(await page.evaluate(id=>__coven.villageState.get(id).alarm>0,v1.id),'Undisguised witch raises the alarm');
+ assert.ok(await page.evaluate(id=>__coven.creatures.some(c=>c.village===id&&c.kind==='hunter'&&c.state==='chase'),v1.id),'Witch hunters give chase');
+ await shot(page,'village-alarm');
+
+ // Glamoured, a witch can walk into another village and trade.
+ await goTo(v2.x,v2.z+120);await page.waitForTimeout(300);
+ await page.evaluate(()=>{const p=__coven.state.player;Object.assign(p.inv,{glamourDust:1,hide:5,soulJar:1});p.mana=p.maxMana;__coven.cast(7);});
+ assert.ok(await page.evaluate(()=>__coven.state.player.effects.glamour>0),'Glamour cast');
+ await goTo(v2.stall.x-2.5,v2.stall.z);await page.waitForTimeout(600);
+ assert.equal(await page.evaluate(id=>__coven.villageState.get(id).alarm,v2.id),0,'Glamoured witch is not recognised');
+ await shot(page,'village-glamour');
+ await page.evaluate(()=>__coven.interact());
+ await page.locator('[data-sell="hide"]').first().click();
+ assert.equal(await page.evaluate(()=>__coven.state.player.inv.silver),3,'Sold hide for silver');
+ await page.keyboard.press('Escape');
+
+ // Striking a villager breaks the glamour, raises the alarm, and the soul fills the jar.
+ await page.evaluate(id=>{const c=__coven.creatures.find(c=>c.village===id&&c.kind==='villager');__coven.hit(c,999);},v2.id);
+ assert.equal(await page.evaluate(()=>__coven.state.player.inv.humanSoul),1,'Captured a human soul');
+ assert.ok(await page.evaluate(id=>__coven.villageState.get(id).alarm>0&&!__coven.state.player.effects.glamour,v2.id),'Violence breaks glamour and raises the alarm');
+
+ // The ultimate summon: four witches, three souls and a Heartfire Sigil.
+ await page.evaluate(()=>{const p=__coven.state.player;p.skills.spellcraft=99999;p.mana=p.maxMana=999;Object.assign(p.inv,{humanSoul:3,heartSigil:1});
+  for(const cls of ['hex','bloom','wild'])if(!p.coven.includes(cls)){p.coven.push(cls);__coven.allies.push({id:9000+p.coven.length,ally:'witch',cls,x:p.x+1,z:p.z+1,y:p.y,yaw:0,life:Infinity,cooldown:0,walk:0});}
+  for(const a of __coven.allies){a.x=p.x+1;a.z=p.z+1;}p.cooldowns={};__coven.cast(8);});
+ assert.ok(await page.evaluate(()=>__coven.allies.some(a=>a.ally==='titan')),'Wyrd Titan summoned');
+ assert.equal(await page.evaluate(()=>__coven.state.player.inv.humanSoul??0),0,'Souls consumed');
+ await page.waitForTimeout(400);
+ await shot(page,'titan');
+ await page.evaluate(()=>{const p=__coven.state.player;p.coven=p.coven.filter(c=>c==='hex');__coven.allies.splice(0,__coven.allies.length,...__coven.allies.filter(a=>a.cls==='hex'));});
+
  // Hunt: a wolf in front of you falls to Leech Bolts and drops loot.
- await page.evaluate(()=>{const p=__coven.state.player;p.mana=p.maxMana=999;p.hp=p.maxHp=999;__coven.spawn('wolf',p.x+Math.cos(p.yaw)*10,p.z+Math.sin(p.yaw)*10);});
- for(let i=0;i<15&&!(await page.evaluate(()=>__coven.state.player.stats.kills));i++){await page.keyboard.press('Digit1');await page.waitForTimeout(1300);}
- assert.equal(await page.evaluate(()=>__coven.state.player.stats.kills),1,'Wolf slain by spells');
+ await page.evaluate(()=>{const p=__coven.state.player;p.mana=p.maxMana=999;p.hp=p.maxHp=999;for(const c of __coven.creatures){c.dead=true;c.hp=0;}__coven.spawn('wolf',p.x+Math.cos(p.yaw)*10,p.z+Math.sin(p.yaw)*10);});
+ const k0=await page.evaluate(()=>__coven.state.player.stats.kills);
+ for(let i=0;i<15&&(await page.evaluate(()=>__coven.state.player.stats.kills))===k0;i++){await page.keyboard.press('Digit1');await page.waitForTimeout(1300);}
+ assert.equal(await page.evaluate(()=>__coven.state.player.stats.kills),k0+1,'Wolf slain by spells');
  assert.ok(await page.evaluate(()=>__coven.state.player.inv.hide>=2),'Wolf dropped hide');
 
  await page.keyboard.press('KeyM');await page.waitForTimeout(300);
@@ -77,5 +114,5 @@ try{
  assert.ok(await page.evaluate(()=>__coven.boss.hp<=5600),'Grand Rite deals full damage once the ward breaks');
  await shot(page,'crown');
  assert.deepEqual(errors,[],'No browser errors');
- console.log('PASS: WebGL 2, Pages subpath, class choice, homeland start, walking, spell bar, village building, alchemy, coven gating, hunting and loot, map, boss ward and Grand Rite, no browser errors.');
+ console.log('PASS: WebGL 2, Pages subpath, class choice, homeland start, walking, spell bar, village building, alchemy, coven gating, human village alarm, glamour and trade, soul capture, Wyrd Titan, hunting and loot, map, boss ward and Grand Rite, no browser errors.');
 }finally{await browser?.close();await new Promise(resolve=>server.close(resolve));}

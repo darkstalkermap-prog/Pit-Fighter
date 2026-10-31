@@ -1,6 +1,6 @@
-import { createWorld, HALF, WORLD_SIZE, NODES, REGIONS, CROWN } from './world.mjs';
+import { createWorld, HALF, WORLD_SIZE, NODES, REGIONS, CROWN, HUMAN_VILLAGE } from './world.mjs';
 import { WorldView } from './view.mjs';
-import { CLASSES, SPELLS, ITEMS, RECIPES, BUILDINGS, SKILLS, VILLAGE_RADIUS } from './data.mjs';
+import { CLASSES, SPELLS, ITEMS, RECIPES, BUILDINGS, SKILLS, VILLAGE_RADIUS, SELL, BUY, COVEN_SPELLS } from './data.mjs';
 import { CREATURE, BESTIARY, BOSS, ELITE_RESPAWN } from './bestiary.mjs';
 import * as R from './rules.mjs';
 import { makeCreature, pickCreature, updateCreature, hurtCreature, makeAlly, updateAlly, ALLIES } from './creatures.mjs';
@@ -8,7 +8,8 @@ import { Net, defaultServer } from './net.mjs';
 
 const SAVE_KEY = 'coven-save-v2', ONLINE_KEY = 'coven-online', DAY_LENGTH = 1200, NODE_RESPAWN = 600, EXPLORE = 64, MAX_CREATURES = 16, COVEN_REACH = 25;
 const REGION_CLASS = { swamp: 'bog', darkforest: 'hex', meadow: 'bloom', forest: 'wild' };
-const SPELL_KEYS = ['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'Digit6', 'Digit7'];
+const SPELL_KEYS = ['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'Digit6', 'Digit7', 'Digit8', 'Digit9'];
+const ALARM = 180, HUMAN_SPAWN = 300, HUMAN_DESPAWN = 450;
 const $ = s => document.querySelector(s), canvas = $('#world');
 const world = createWorld(1337);
 
@@ -87,9 +88,74 @@ const elders = () => world.pois.filter(p => p.type === 'hearth').map(h => ({ id:
   .filter(e => !state.player.coven.includes(e.cls));
 const wards = () => state.buildings.filter(b => b.type === 'totem');
 
+// ---------- human villages ----------
+const humanVillages = world.pois.filter(o => o.type === 'village');
+const villageState = new Map(humanVillages.map(v => [v.id, { alarm: 0, spawned: false }]));
+const glamoured = () => !!state.player.effects.glamour;
+const villageAt = (o, extra = 0) => humanVillages.find(v => near(v, o, HUMAN_VILLAGE.radius + extra));
+const merchantNear = () => creatures.find(c => c.kind === 'merchant' && c.hp > 0 && near(c, state.player, 5));
+const canTrade = () => glamoured() && merchantNear() && !(villageState.get(merchantNear().village).alarm > 0);
+
+function raiseAlarm(v, why) {
+  const vs = villageState.get(v.id), was = vs.alarm > 0;
+  vs.alarm = ALARM;
+  if (glamoured()) { delete state.player.effects.glamour; toast('Your glamour shatters!'); }
+  if (!was) toast(`${why} The witch hunters of ${v.name} are coming!`, true);
+}
+
+function spawnVillagers(v) {
+  const add = (kind, x, z, roam) => creatures.push(makeCreature(kind, x, z, { village: v.id, homeX: x, homeZ: z, roam, calm: true }));
+  const L = v.layout;
+  add('merchant', L.stall.x, L.stall.z, 0);
+  for (const g of L.gates) { const ix = v.x + Math.cos(g.angle) * (HUMAN_VILLAGE.radius - 4), iz = v.z + Math.sin(g.angle) * (HUMAN_VILLAGE.radius - 4); add('hunter', ix, iz, 3); }
+  for (let i = 0; i < 2; i++) add('hunter', v.x + (i ? 10 : -10), v.z + 6, 25);
+  for (let i = 0; i < 5; i++) { const a = i * 1.3; add('villager', v.x + Math.cos(a) * 15, v.z + Math.sin(a) * 15, 25); }
+}
+
+function updateVillages(dt) {
+  const p = state.player;
+  for (const v of humanVillages) {
+    const vs = villageState.get(v.id), d = dist(v, p);
+    vs.alarm = Math.max(0, vs.alarm - dt);
+    if (d < HUMAN_SPAWN && !vs.spawned) { vs.spawned = true; spawnVillagers(v); }
+    if (d > HUMAN_DESPAWN && vs.spawned) { vs.spawned = false; creatures = creatures.filter(c => c.village !== v.id); }
+    if (!vs.spawned) continue;
+    if (d < HUMAN_VILLAGE.radius + 3 && p.hp > 0 && !glamoured() && vs.alarm <= 0) raiseAlarm(v, `A witch walks in ${v.name}!`);
+    const alarm = vs.alarm > 0;
+    for (const c of creatures) {
+      if (c.village !== v.id) continue;
+      c.calm = !alarm;
+      if (c.kind === 'hunter') { c.angry = alarm && d < 160; if (c.angry) c.state = 'chase'; }
+    }
+  }
+  if (p.wasGlamoured && !glamoured()) { const v = villageAt(p, 10); if (v) raiseAlarm(v, 'Your glamour fades!'); else toast('Your glamour fades.'); }
+  p.wasGlamoured = glamoured();
+}
+
+// The palisade has two gates; houses are solid.
+function villageWalls(x, z, px, pz) {
+  for (const v of humanVillages) {
+    if (Math.abs(v.x - x) > 50 || Math.abs(v.z - z) > 50) continue;
+    const R = HUMAN_VILLAGE.radius, dx = x - v.x, dz = z - v.z, d = Math.hypot(dx, dz) || 1;
+    if (Math.abs(d - R) < 1.1) {
+      const a = Math.atan2(dz, dx), gap = Math.min(...v.layout.gates.map(g => Math.abs(((a - g.angle + Math.PI * 3) % (Math.PI * 2)) - Math.PI)));
+      if (gap > HUMAN_VILLAGE.gate * .75) { const r = Math.hypot(px - v.x, pz - v.z) < R ? R - 1.1 : R + 1.1; x = v.x + dx / d * r; z = v.z + dz / d * r; }
+    }
+    for (const h of v.layout.houses) {
+      const r = Math.max(h.w, h.d) / 2 + .5, hx = x - h.x, hz = z - h.z, hd = Math.hypot(hx, hz);
+      if (hd < r && hd > 0) { x = h.x + hx / hd * r; z = h.z + hz / hd * r; }
+    }
+  }
+  return [x, z];
+}
+
 // ---------- interaction ----------
 function interaction() {
   const p = state.player;
+  const merchant = merchantNear();
+  if (merchant) return canTrade()
+    ? { label: 'Trade with the merchant', act: () => openPanel('pack', 'trade') }
+    : { label: villageState.get(merchant.village).alarm > 0 ? 'The merchant cowers. The village is on guard.' : 'The merchant would see a witch. Cast Glamour [8] first.', act: () => {} };
   const elder = elders().find(e => near(e, p, 5));
   if (elder) {
     const k = CLASSES[elder.cls];
@@ -168,6 +234,7 @@ function damage(target, amount, opts = {}, fromPlayer = true) {
     return;
   }
   const b = CREATURE[target.kind];
+  if (b.human && target.village !== undefined) { const v = humanVillages.find(o => o.id === target.village); if (v) raiseAlarm(v, `You attacked the people of ${v.name}.`); }
   if (fromPlayer && R.poisonsOnHit(p)) opts = { ...opts, poison: Math.max(opts.poison ?? 0, 4) };
   if (hurtCreature(target, amount * (fromPlayer ? 1 + (R.skillLevel(p, 'hunting') - 1) * .02 : 1), opts)) slain(target, b);
 }
@@ -180,6 +247,7 @@ function slain(c, b) {
   if (b.elite) { p.stats.eliteKills++; state.elites[b.region] = state.clock + ELITE_RESPAWN; toast(`${b.name} has fallen!`, true); }
   toast(`${b.name} slain. ${Object.entries(loot).map(([id, n]) => `+${n} ${ITEMS[id].name}`).join(', ')}`);
   trained('hunting', R.train(p, 'hunting', b.level * 4 + (b.elite ? 80 : 0)));
+  if (b.human) toast(R.captureSoul(p) ? 'A soul is drawn into your Soul Jar.' : 'A soul slips away. Carry an empty Soul Jar to capture it.');
   reward(b.xp); quests();
 }
 
@@ -212,6 +280,14 @@ function cast(index) {
   if (!id || p.hp <= 0) return;
   const s = SPELLS[id], blocker = R.castBlocker(p, id, covenNearby());
   if (blocker) { toast(`${s.name}: ${blocker}`); return; }
+  if (s.kind === 'glamour') {
+    const v = humanVillages.find(o => near(o, p, 150) && villageState.get(o.id).alarm > 0);
+    if (v) { toast(`Glamour: ${v.name} is on guard. Wait for the alarm to die down.`); return; }
+  } else if (glamoured()) {
+    delete p.effects.glamour; p.wasGlamoured = false;
+    const v = villageAt(p, 15);
+    if (v) raiseAlarm(v, 'Witchcraft in plain sight!'); else toast('Casting breaks your glamour.');
+  }
   const power = R.spellPower(p, isNight());
   let target = null;
   if (s.kind === 'bolt' || s.kind === 'aoe') {
@@ -240,9 +316,11 @@ function cast(index) {
   }
   if (s.kind === 'summon') {
     const a = makeAlly(s.summon, p.x + Math.cos(yaw) * 3, p.z + Math.sin(yaw) * 3, s.duration);
-    allies.push(a); ring(a.x, p.y, a.z, 3, s.color);
-    toast(`${ALLIES[s.summon].name} answers the coven's call.`);
+    allies.push(a); ring(a.x, p.y, a.z, s.summon === 'titan' ? 12 : 3, s.color);
+    if (s.summon === 'titan') { p.stats.titans++; toast('Three souls burn. The earth splits, and the Wyrd Titan rises!', true); }
+    else toast(`${ALLIES[s.summon].name} answers the coven's call.`);
   }
+  if (s.kind === 'glamour') { p.effects.glamour = s.duration; p.wasGlamoured = true; ring(p.x, p.y, p.z, 2, s.color); toast('You wear a borrowed human face. Spells or violence will break it.'); if (allies.some(a => a.ally === 'witch' || a.ally === 'fox')) toast('Your companions will wait here until the glamour ends.'); }
   if (s.coven > 1) quests();
 }
 
@@ -294,7 +372,8 @@ function updatePlayer(dt) {
     mx /= len; mz /= len;
     if (swing <= 0) p.yaw += Math.max(-dt * 12, Math.min(dt * 12, ((Math.atan2(mz, mx) - p.yaw + Math.PI * 3) % (Math.PI * 2)) - Math.PI));
     const speed = (swimming ? 3 : p.sprinting ? 9 : 5) * R.moveSpeedFactor(p);
-    const [nx, nz] = collide(Math.max(-HALF + 20, Math.min(HALF - 20, p.x + mx * speed * dt)), Math.max(-HALF + 20, Math.min(HALF - 20, p.z + mz * speed * dt)));
+    const [cx, cz] = collide(Math.max(-HALF + 20, Math.min(HALF - 20, p.x + mx * speed * dt)), Math.max(-HALF + 20, Math.min(HALF - 20, p.z + mz * speed * dt)));
+    const [nx, nz] = villageWalls(cx, cz, p.x, p.z);
     p.x = nx; p.z = nz;
   }
   const g = world.ground(p.x, p.z);
@@ -306,7 +385,7 @@ function updatePlayer(dt) {
   if (keys.has('Space') && p.grounded && p.stamina > 8 && p.hp > 0) { p.vy = 7.5; p.grounded = false; p.stamina -= 8; }
 
   const surface = world.surface(p.x, p.z), cold = (surface === 'snow' || surface === 'peaks' && isNight()) && !nearFire(10);
-  if (cold && !p.cold && !R.count(p, 'cloak')) toast('The cold bites. Find a fire or craft a Hide Cloak.');
+  if (cold && !p.cold && !R.warm(p)) toast('The cold bites. Find a fire or craft a Hide Cloak.');
   p.cold = cold;
   if (R.tickSurvival(p, dt, { sprinting: p.sprinting, swimming: g < -1.3, cold })) {
     toast('You have fallen.', true); toast(`You wake at ${p.home.name}.`);
@@ -330,7 +409,8 @@ function updateCreatures(dt) {
   }
   creatures = creatures.filter(c => c.hp > 0);
   allies = allies.filter(a => a.life > 0);
-  allies.forEach((a, i) => updateAlly(a, p, hostiles(), world.ground, dt, (target, dmg) => {
+  const hiding = glamoured();
+  allies.forEach((a, i) => (hiding && (a.ally === 'witch' || a.ally === 'fox') && near(a, p, 200)) || updateAlly(a, p, hostiles(), world.ground, dt, (target, dmg) => {
     if (ALLIES[a.ally].ranged) bolt(a, target, dmg * (1 + p.level * .05), SPELLS[CLASSES[a.cls].spells[0]].color, {}, false);
     else damage(target, dmg * (1 + p.level * .05), {}, false);
   }, i));
@@ -338,7 +418,7 @@ function updateCreatures(dt) {
   spawnTimer -= dt;
   if (spawnTimer > 0) return;
   spawnTimer = 1;
-  creatures = creatures.filter(c => near(c, p, CREATURE[c.kind].elite ? 500 : 360));
+  creatures = creatures.filter(c => c.village !== undefined || near(c, p, CREATURE[c.kind].elite ? 500 : 360));
   for (const lair of world.pois.filter(o => o.type === 'lair' && near(o, p, 220))) {
     const elite = BESTIARY.find(b => b.elite && b.region === lair.region);
     if ((state.elites[lair.region] ?? 0) <= state.clock && !creatures.some(c => c.kind === elite.id)) {
@@ -346,10 +426,10 @@ function updateCreatures(dt) {
       toast(`You sense ${elite.name} nearby…`);
     }
   }
-  if (creatures.length >= MAX_CREATURES) return;
+  if (creatures.filter(c => c.village === undefined).length >= MAX_CREATURES) return;
   const a = Math.random() * Math.PI * 2, r = 90 + Math.random() * 140, x = p.x + Math.cos(a) * r, z = p.z + Math.sin(a) * r;
   if (Math.abs(x) > HALF - 50 || Math.abs(z) > HALF - 50 || world.ground(x, z) < 1 || w.some(t => Math.hypot(t.x - x, t.z - z) < 40)) return;
-  if (world.pois.some(o => o.type === 'hearth' && Math.hypot(o.x - x, o.z - z) < 70)) return;
+  if (world.pois.some(o => (o.type === 'hearth' || o.type === 'village') && Math.hypot(o.x - x, o.z - z) < 80)) return;
   const kind = pickCreature(world.region(x, z), world.danger(x, z), night);
   if (kind) creatures.push(makeCreature(kind, x, z));
 }
@@ -409,9 +489,9 @@ function updateWorld(dt) {
       const x = ex + i, z = ez + j;
       if (x >= 0 && z >= 0 && x < EXPLORE && z < EXPLORE && i * i + j * j <= reach * reach + 1 && !explored[z * EXPLORE + x]) { explored[z * EXPLORE + x] = 1; state.explored.push(z * EXPLORE + x); }
     }
-    for (const poi of world.pois) if (!state.discovered.includes(poi.id) && near(poi, p, 50)) {
+    for (const poi of world.pois) if (!state.discovered.includes(poi.id) && near(poi, p, poi.type === 'village' ? 140 : 50)) {
       state.discovered.push(poi.id); p.stats.discovered++;
-      toast(`Discovered: ${poi.name}`, true); reward(75); quests();
+      toast(`Discovered: ${poi.name}`, true); if (poi.type === 'village') toast('A human village. Its people hunt witches: go in glamoured [8], or not at all.'); reward(75); quests();
     }
   }
   saveTimer += dt;
@@ -426,7 +506,7 @@ function update(dt) {
     net.send({ type: 'state', x: p.x, y: p.y, z: p.z, yaw: p.yaw, hp: p.hp, maxHp: p.maxHp, level: p.level, cls: p.class, moving, swing });
   }
   swing = Math.max(0, swing - dt / .45); swingCooldown -= dt; hurtFlash = Math.max(0, hurtFlash - dt);
-  updatePlayer(dt); updateCreatures(dt); updateBoss(dt); updateProjectiles(dt); updateWorld(dt);
+  updatePlayer(dt); updateVillages(dt); updateCreatures(dt); updateBoss(dt); updateProjectiles(dt); updateWorld(dt);
 }
 
 // ---------- HUD ----------
@@ -439,8 +519,9 @@ function hud() {
   $('#className').textContent = CLASSES[p.class].name.toUpperCase();
   $('#xp').style.width = `${p.xp / R.xpToNext(p.level) * 100}%`;
   const minutes = Math.floor(state.dayTime * 24 * 60), fx = Object.keys(p.effects).filter(e => e !== 'regenRate');
-  $('#clock').textContent = `DAY ${state.day} · ${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}${p.cold && !R.count(p, 'cloak') ? ' · FREEZING' : ''}${p.poison > 0 ? ' · POISONED' : ''}${fx.length ? ' · ' + fx.join(' ').toUpperCase() : ''}`;
-  const region = `${world.placeName(p.x, p.z)} · danger ${world.danger(p.x, p.z)}`;
+  $('#clock').textContent = `DAY ${state.day} · ${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}${p.cold && !R.warm(p) ? ' · FREEZING' : ''}${p.poison > 0 ? ' · POISONED' : ''}${fx.length ? ' · ' + fx.join(' ').toUpperCase() : ''}`;
+  const alarmed = humanVillages.find(v => near(v, p, 150) && villageState.get(v.id).alarm > 0);
+  const region = `${world.placeName(p.x, p.z)} · danger ${world.danger(p.x, p.z)}${alarmed ? ' · ALARM RAISED' : ''}`;
   if (region !== lastRegion) { lastRegion = region; $('#region').textContent = region; }
   const q = R.QUESTS[p.quest];
   $('#questTitle').textContent = q ? q.title : 'The Coven is Whole';
@@ -473,7 +554,7 @@ function compass() {
   [['N', 0], ['E', Math.PI / 2], ['S', Math.PI], ['W', -Math.PI / 2]].forEach(([l, b]) => place(b, l, 'cardinal'));
   for (const poi of world.pois) {
     const d = dist(poi, p), found = state.discovered.includes(poi.id), raven = p.class === 'hex';
-    if (found && d < 4000 || d < 1500 || raven || poi.type === 'hearth' || poi.type === 'crown') place(Math.atan2(poi.x - p.x, -(poi.z - p.z)), poi.type === 'crown' ? '♛' : poi.type === 'hearth' ? '⌂' : found ? '◆' : '◇', `poi${found ? ' found' : ''}`);
+    if (found && d < 4000 || d < 1500 || raven || poi.type === 'hearth' || poi.type === 'crown') place(Math.atan2(poi.x - p.x, -(poi.z - p.z)), poi.type === 'crown' ? '♛' : poi.type === 'hearth' ? '⌂' : poi.type === 'village' && found ? '♜' : found ? '◆' : '◇', `poi${found ? ' found' : ''}`);
   }
   const h = heart();
   if (h) place(Math.atan2(h.x - p.x, -(h.z - p.z)), '✦', 'home');
@@ -501,15 +582,22 @@ function renderPack() {
   if (tab === 'skills') {
     html = `<ul>${Object.entries(SKILLS).map(([id, s]) => { const lv = R.skillLevel(p, id), lo = 25 * (lv - 1) ** 2, hi = 25 * lv ** 2; return `<li><span>${s.name} <small>${s.text}</small><div class="meter"><div style="width:${lv >= R.SKILL_CAP ? 100 : (p.skills[id] - lo) / (hi - lo) * 100}%"></div></div></span><b class="lv">${lv}</b></li>`; }).join('')}</ul>`;
   }
+  if (tab === 'trade') {
+    const ok = canTrade(), silver = R.count(p, 'silver');
+    html = ok
+      ? `<p class="hint">The merchant sees only a traveller. You carry <b>${silver} silver</b>.</p><h4>Sell</h4><ul>${Object.keys(p.inv).filter(id => SELL[id]).map(id => `<li><span>${ITEMS[id].name} <small>× ${R.count(p, id)} · ${SELL[id]} silver each</small></span><button data-sell="${id}">SELL</button></li>`).join('') || '<li><small>Nothing the merchant wants.</small></li>'}</ul><h4>Buy</h4><ul>${Object.entries(BUY).map(([id, price]) => `<li><span>${ITEMS[id].name} <small>${price} silver</small></span><button data-buy="${id}" ${silver >= price ? '' : 'disabled'}>BUY</button></li>`).join('')}</ul>`
+      : '<p class="hint">Trade happens at a human village market stall, while you wear a Glamour [8] and the village is calm.</p>';
+  }
   if (tab === 'coven') {
     const k = CLASSES[p.class];
-    html = `<h4>${k.name} of ${REGIONS[k.region].name}</h4><p class="hint">${k.blurb}</p><h4>Familiar: ${k.familiar.name}</h4><p class="hint">${k.familiar.bonus}<br>${k.familiar.ability}</p><h4>Your coven (${1 + p.coven.length}/4)</h4><ul>${Object.entries(CLASSES).filter(([id]) => id !== p.class).map(([id, c]) => `<li><span>${c.elder}, ${c.name}<br><small>${p.coven.includes(id) ? 'Sworn to your coven.' : `At ${world.hearthOf(c.region).name} in ${REGIONS[c.region].name}. ${R.recruitBlocker(p, id)}.`}</small></span></li>`).join('')}</ul><h4>Coven rites</h4><ul>${['summonbeast', 'binding', 'storm', 'guardian', 'grandrite'].map(id => { const s = SPELLS[id]; return `<li><span>${s.name}<br><small>${s.coven} witches · Spellcraft ${s.skill} · ${needsText(p, s.reagent)}</small></span></li>`; }).join('')}</ul>`;
+    html = `<h4>${k.name} of ${REGIONS[k.region].name}</h4><p class="hint">${k.blurb}</p><h4>Familiar: ${k.familiar.name}</h4><p class="hint">${k.familiar.bonus}<br>${k.familiar.ability}</p><h4>Your coven (${1 + p.coven.length}/4)</h4><ul>${Object.entries(CLASSES).filter(([id]) => id !== p.class).map(([id, c]) => `<li><span>${c.elder}, ${c.name}<br><small>${p.coven.includes(id) ? 'Sworn to your coven.' : `At ${world.hearthOf(c.region).name} in ${REGIONS[c.region].name}. ${R.recruitBlocker(p, id)}.`}</small></span></li>`).join('')}</ul><h4>Coven rites</h4><ul>${COVEN_SPELLS.map(id => { const s = SPELLS[id]; return `<li><span>${s.name}<br><small>${s.coven} witches · Spellcraft ${s.skill} · ${needsText(p, s.reagent)}</small></span></li>`; }).join('')}</ul>`;
   }
   $('#tabBody').innerHTML = html;
 }
 $('#tabs').addEventListener('click', e => { if (e.target.dataset.tab) { tab = e.target.dataset.tab; renderPack(); } });
 $('#tabBody').addEventListener('click', e => {
-  const p = state.player, { use, craft, build } = e.target.dataset;
+  const p = state.player, { use, craft, build, sell, buy } = e.target.dataset;
+  if ((sell || buy) && canTrade() && R.trade(p, sell || buy, !!sell)) { toast(sell ? `Sold ${ITEMS[sell].name} for ${SELL[sell]} silver.` : `Bought ${ITEMS[buy].name}.`); quests(); }
   if (use) { const msg = R.useItem(p, use); if (msg) toast(msg); }
   if (craft) {
     const before = R.skillLevel(p, 'alchemy'), made = R.craft(p, craft, stations());
@@ -541,7 +629,7 @@ function renderMap() {
   for (const [id, r] of Object.entries(REGIONS)) ctx.fillText(r.name.toUpperCase(), W / 2 + r.quadrant[0] * W * .22, W / 2 + r.quadrant[1] * W * .36);
   for (const poi of world.pois) if (state.discovered.includes(poi.id) || poi.type === 'hearth' || poi.type === 'crown') {
     const x = px(poi.x), y = px(poi.z);
-    ctx.fillStyle = { circle: state.attuned.includes(poi.id) ? '#d9b8ff' : '#9a6bff', ruin: '#d6b46a', shrine: '#5fe0b0', hearth: '#ffb347', lair: '#ff6a6a', crown: '#ff3c6e' }[poi.type];
+    ctx.fillStyle = { circle: state.attuned.includes(poi.id) ? '#d9b8ff' : '#9a6bff', ruin: '#d6b46a', shrine: '#5fe0b0', hearth: '#ffb347', lair: '#ff6a6a', crown: '#ff3c6e', village: '#e8e0c8' }[poi.type];
     ctx.beginPath(); ctx.arc(x, y, poi.type === 'crown' ? 8 : 5, 0, Math.PI * 2); ctx.fill();
     ctx.fillStyle = '#f2ecf8'; ctx.fillText(poi.name, x, y - 10);
   }
@@ -698,7 +786,7 @@ canvas.addEventListener('mousedown', e => {
 const saved = loadState();
 if (saved) { begin(saved); $('#play').innerHTML = 'CONTINUE <span>→</span>'; $('#newGame').classList.remove('hidden'); }
 else begin(freshState('wild'));
-window.__coven = { net, get remotes() { return remotes; }, get villages() { return villages; }, get state() { return state; }, world, view, get creatures() { return creatures; }, get allies() { return allies; }, get boss() { return boss; }, cast, placeBuilding, get mode() { return mode; }, spawn: (kind, x, z) => creatures.push(makeCreature(kind, x, z)) };
+window.__coven = { net, get remotes() { return remotes; }, get villages() { return villages; }, get state() { return state; }, world, view, get creatures() { return creatures; }, get allies() { return allies; }, get boss() { return boss; }, cast, placeBuilding, get mode() { return mode; }, spawn: (kind, x, z) => creatures.push(makeCreature(kind, x, z)), hit: (c, n) => damage(c, n), humanVillages, villageState, interact: () => interaction()?.act() };
 // Without a save, the menu shows the world behind it but play starts at class selection.
 if (!saved) state = null;
 const preview = freshState('wild');
@@ -714,7 +802,7 @@ function frame(now) {
     const built = allBuildings(), lights = [...built.filter(b => b.type === 'campfire' || b.type === 'lantern'), ...hearthFires()];
     view.syncRemotes([...remotes.values()], now / 1000);
     view.syncWorld({ creatures, allies, boss, buildings: built, projectiles, elders: elders(), now: now / 1000 });
-    view.render({ player: p, yaw, pitch, dayTime: state.dayTime, now: now / 1000, dt, swing, toolName: R.weapon(p).name, lights, moving: moving && mode === 'playing', sight: !!p.effects.sight });
+    view.render({ player: p, yaw, pitch, dayTime: state.dayTime, now: now / 1000, dt, swing, toolName: R.weapon(p).name, lights, moving: moving && mode === 'playing', sight: !!p.effects.sight, glamour: !!p.effects.glamour });
     hud();
   } else view.render({ player: p, yaw, pitch: .25, dayTime: .3, now: now / 1000, dt, swing: 0, toolName: 'fists', lights: hearthFires(), moving: false, sight: false });
   requestAnimationFrame(frame);

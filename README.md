@@ -16,10 +16,10 @@ Use a desktop browser with a keyboard and mouse. Progress saves in the browser's
 | Mouse (or ← →) | Look |
 | Left mouse | Strike, or gather from the tree, rock, bush or herb in front of you |
 | Right mouse or 1 | Your first spell |
-| 1–7 | Spells: 1–2 your class, 3–4 two-witch rites, 5–6 three-witch rites, 7 the Grand Rite |
+| 1–9 | Spells: 1–2 your class, 3–4 two-witch rites, 5–6 three-witch rites, 7 the Grand Rite, 8 Glamour, 9 Summon the Wyrd Titan |
 | E | Interact: talk, recruit, attune, rest, cook, harvest, drink |
 | Q | Eat your best food |
-| Tab / B / K / C | Pack, build, skills, coven panels (Pack · Craft · Alchemy · Build · Skills · Coven) |
+| Tab / B / K / C | Pack, build, skills, coven panels (Pack · Craft · Alchemy · Build · Skills · Coven · Trade) |
 | M | World map |
 | Enter | Chat (online) |
 | Esc | Pause / close panel |
@@ -60,6 +60,16 @@ The island is split into four lands around the Crown, a mountain summit at its c
 
 Each land has a **Hearth** (class starting point, with that path's elder) and a **Lair** guarded by an elite. Stone circles (attune to make them your respawn point), ruins (one-time caches) and shrines (daily full restore) are scattered across the isle. Moonstone is mined in the Crown mountains with a Stone Pick.
 
+## Human villages
+
+Eight walled villages (two in each land) hold houses, a chapel, a market stall, villagers, gate guards and **witch hunters**. Humans hate witches:
+
+- Walk in as yourself and the **alarm** goes up: witch hunters chase you down and villagers flee. An alarm lasts three minutes.
+- Cast **Glamour** [8] (needs Glamour Dust, brewed from Dewbell, Nightshade and a feather) to wear a human face for 150 seconds. Your coven sisters and familiar wait outside. Enter through a gate and trade with the merchant [E]: sell hides, herbs, potions and essences for **silver**; buy bread, ale, bandages, a Wool Cloak, and Iron Hatchets and Picks that gather far more.
+- Casting any other spell, striking anyone, or letting the glamour run out inside the walls breaks the illusion and raises the alarm. You cannot glamour a village that is already on guard.
+- A human who dies near you leaves a **soul**. Carry empty **Soul Jars** (made at your Ritual Altar from moonstone and slime) to capture them.
+- **Human Souls** are the price of the ultimate summon: **Summon the Wyrd Titan** [9] needs four witches, three souls and a Heartfire Sigil, and raises a colossal ally for 90 seconds.
+
 ## Witch classes and familiars
 
 | Class | Spells | Familiar | Bonus | Ability |
@@ -89,13 +99,14 @@ Creatures drop meat, hide, bone, feathers, slime, chitin, silk, venom, ectoplasm
 - **Village:** found it with a Village Heart, then build within 60 m: Cauldron, Witch Hut (rest and respawn), Well, Herb Garden (grows homeland herbs), Warding Totem (beasts stay away), Ritual Altar, Palisade walls and Lantern Posts. Campfires can go anywhere.
 - **The coven:** recruit the elder of each other path at her Hearth: the first at level 3, the second at level 6, the third at level 9, each for a potion gift. Sisters follow you and fight with their own spells.
 - **Coven rites:** Summon Beast and Binding Circle (2 witches, Coven Ink), Storm of the Three and Call the Guardian (3 witches, Moonstone Dust), the Grand Rite (4 witches, Heartfire Sigil).
+- **The ultimate summon:** the Wyrd Titan, paid for in human souls (see Human villages).
 - **The end:** the Unwitch at the Crown takes only 10% damage until a Grand Rite cast within reach shatters her ward for 25 seconds.
 
-A twelve-step quest line guides the way from first gathering to the Grand Rite.
+A fifteen-step quest line guides the way from first gathering to the Grand Rite.
 
 ## Current limits
 
-This is a prototype. Wildlife is not synchronised between players, and players cannot damage each other. Graphics are placeholder-level. Balance numbers are first guesses.
+This is a prototype. Wildlife is not synchronised between players, and players cannot damage each other. Human villages and their alarms are also local to each player. Graphics are placeholder-level. Balance numbers are first guesses.
 
 ## Development
 

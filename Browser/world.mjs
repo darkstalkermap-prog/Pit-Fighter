@@ -103,6 +103,9 @@ const DENSITY = {
 
 const POI_NAMES = ['Hexmoor', 'Blackthorn Vale', 'Ravenhollow', 'Mosswick', 'Cinderfold', 'Wyrdmere', 'Gallows Rise', 'Thistledown', 'Briarwatch', 'Hollowell', 'Nightshade Fen', 'Ashgrove', 'Grimsby Barrow', 'Crowfoot Tor', 'Elderroot', 'Wolfsbane Ridge'];
 const POI_TYPES = ['circle', 'ruin', 'circle', 'shrine'];
+const VILLAGE_NAMES = { darkforest: ['Harrowgate', 'Dunmere'], forest: ['Oakhollow', 'Ashford'], swamp: ['Kettlewick', 'Saltmarsh'], meadow: ['Millbrook', 'Fairhaven'] };
+// Human villages: a palisade ring of this radius with two gates, houses, a chapel and a market stall.
+export const HUMAN_VILLAGE = { radius: 40, gate: .14 };
 const HEARTHS = { swamp: 'Bogmother\'s Hearth', darkforest: 'Gloam Hearth', meadow: 'Bloomhearth', forest: 'Greenhearth' };
 const LAIRS = { swamp: 'Wyrm\'s Wallow', darkforest: 'Mournhide Den', meadow: 'The Golden Hive', forest: 'Elderhorn Glade' };
 
@@ -199,6 +202,15 @@ export function createWorld(seed = 1337) {
     addPoi({ name: LAIRS[id], type: 'lair', region: id, ...lair });
   }
   addPoi({ name: 'The Crown', type: 'crown', region: null, x: CROWN.x, z: CROWN.z });
+  // Two human villages per region, along the region's outer edges, on fairly level ground.
+  const level = (x, z) => { let lo = Infinity, hi = -Infinity; for (let a = 0; a < 6.28; a += .8) { const h = height(x + Math.cos(a) * 40, z + Math.sin(a) * 40); lo = Math.min(lo, h); hi = Math.max(hi, h); } return hi - lo < 14 && lo > 3; };
+  for (const [id, reg] of Object.entries(REGIONS)) {
+    const [qx, qz] = reg.quadrant;
+    [[qx * 3300, qz * 1500], [qx * 1500, qz * 3300]].forEach(([sx, sz], k) => {
+      const spot = findLand(sx, sz, (h, x, z) => h > 4 && h < 90 && region(x, z) === id && level(x, z) && pois.every(p => Math.hypot(p.x - x, p.z - z) > 500));
+      addPoi({ name: VILLAGE_NAMES[id][k], type: 'village', region: id, ...spot, layout: villageLayout(spot.x, spot.z, rng(hash(seed, 900, k, sx)) ) });
+    });
+  }
   {
     const random = rng(hash(seed, 77));
     let named = 0;
@@ -210,12 +222,32 @@ export function createWorld(seed = 1337) {
     }
   }
 
+  function villageLayout(cx, cz, random) {
+    const gate = random() * Math.PI, houses = [], R = HUMAN_VILLAGE.radius;
+    for (let tries = 0; tries < 200 && houses.length < 7; tries++) {
+      const a = random() * Math.PI * 2, r = 13 + random() * 18, x = cx + Math.cos(a) * r, z = cz + Math.sin(a) * r;
+      if (houses.some(h => Math.hypot(h.x - x, h.z - z) < 10)) continue;
+      const toGate = Math.min(...[gate, gate + Math.PI].map(g => Math.abs(((a - g + Math.PI * 3) % (Math.PI * 2)) - Math.PI)));
+      if (toGate < .35) continue; // keep the roads clear
+      houses.push({ x, z, y: ground(x, z), rot: -a + Math.PI / 2, w: 5 + random() * 2, d: 4 + random() * 1.5, chapel: houses.length === 0 });
+    }
+    const posts = [];
+    for (let i = 0; i < 72; i++) {
+      const a = i / 72 * Math.PI * 2;
+      if (Math.min(...[gate, gate + Math.PI].map(g => Math.abs(((a - g + Math.PI * 3) % (Math.PI * 2)) - Math.PI))) < HUMAN_VILLAGE.gate) continue;
+      const x = cx + Math.cos(a) * R, z = cz + Math.sin(a) * R;
+      posts.push({ x, z, y: ground(x, z), rot: -a });
+    }
+    const gates = [gate, gate + Math.PI].map(g => ({ x: cx + Math.cos(g) * R, z: cz + Math.sin(g) * R, angle: g }));
+    return { gate, houses, posts, gates, stall: { x: cx + 4, z: cz, y: ground(cx + 4, cz) } };
+  }
+
   function scatter(cx, cz) {
     const random = rng(hash(seed, cx, cz)), nodes = [];
     for (let i = 0; i < 300; i++) {
       const x = cx * CHUNK + random() * CHUNK, z = cz * CHUNK + random() * CHUNK, roll = random(), s = .75 + random() * .6, rot = random() * Math.PI * 2;
       const h = height(x, z), table = DENSITY[surface(x, z, h)];
-      if (!table || pois.some(p => Math.abs(p.x - x) < (p.type === 'crown' ? 140 : 32) && Math.abs(p.z - z) < (p.type === 'crown' ? 140 : 32))) continue;
+      if (!table || pois.some(p => { const r = p.type === 'crown' ? 140 : p.type === 'village' ? 52 : 32; return Math.abs(p.x - x) < r && Math.abs(p.z - z) < r; })) continue;
       let acc = 0;
       for (const [type, p] of Object.entries(table)) {
         acc += p;

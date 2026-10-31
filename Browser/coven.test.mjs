@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createWorld, HALF, CELL, WATER, REGIONS, NODES } from './world.mjs';
-import { CLASSES, SPELLS, RECIPES, BUILDINGS, ITEMS } from './data.mjs';
-import { BESTIARY, CREATURE } from './bestiary.mjs';
+import { createWorld, HALF, CELL, WATER, REGIONS, NODES, HUMAN_VILLAGE } from './world.mjs';
+import { CLASSES, SPELLS, RECIPES, BUILDINGS, ITEMS, SELL, BUY } from './data.mjs';
+import { BESTIARY, CREATURE, HUMANS } from './bestiary.mjs';
 import * as R from './rules.mjs';
 import { makeCreature, updateCreature, hurtCreature, pickCreature, makeAlly, updateAlly } from './creatures.mjs';
 
@@ -215,4 +215,74 @@ test('allies follow you and attack what hunts you', () => {
   const idle = makeAlly('witch', 40, 0);
   for (let i = 0; i < 600; i++) updateAlly(idle, you, [], flat, 1 / 60, () => {});
   assert.ok(Math.hypot(idle.x, idle.z) < 5, 'sister returns to your side');
+});
+
+test('two walled human villages per region, with gates, houses and a market', () => {
+  const villages = world.pois.filter(p => p.type === 'village');
+  assert.equal(villages.length, 8);
+  for (const id of Object.keys(REGIONS)) assert.equal(villages.filter(v => v.region === id).length, 2);
+  for (const v of villages) {
+    assert.equal(world.region(v.x, v.z), v.region);
+    assert.equal(v.layout.gates.length, 2);
+    assert.ok(v.layout.houses.length >= 4 && v.layout.houses.some(h => h.chapel));
+    assert.ok(v.layout.posts.length > 50);
+    for (const h of v.layout.houses) assert.ok(Math.hypot(h.x - v.x, h.z - v.z) < HUMAN_VILLAGE.radius - 5);
+  }
+  const v = villages[0];
+  assert.ok(!world.scatter(Math.floor(v.x / 250), Math.floor(v.z / 250)).some(n => Math.hypot(n.x - v.x, n.z - v.z) < 45), 'no trees inside');
+});
+
+test('humans drop real items and are not region wildlife', () => {
+  for (const h of HUMANS) for (const id of Object.keys(h.loot)) assert.ok(ITEMS[id], id);
+  assert.ok(Array.from({ length: 100 }, () => pickCreature('forest', 10, true)).every(id => !CREATURE[id].human));
+});
+
+test('trading: sell witch goods for silver, buy human goods', () => {
+  const p = player('hex');
+  for (const id of [...Object.keys(SELL), ...Object.keys(BUY)]) assert.ok(ITEMS[id], id);
+  assert.equal(R.tradeBlocker(p, 'hide', true), 'Nothing to sell');
+  R.addItem(p, 'hide', 10);
+  for (let i = 0; i < 10; i++) assert.equal(R.trade(p, 'hide', true), true);
+  assert.equal(R.count(p, 'silver'), 30);
+  assert.equal(R.tradeBlocker(p, 'ironHatchet', false), 'Needs 40 silver');
+  assert.equal(R.trade(p, 'woolCloak', false), true);
+  assert.equal(R.count(p, 'silver'), 5);
+  assert.ok(R.warm(p), 'a wool cloak keeps out the cold');
+  assert.equal(p.stats.trades, 11);
+  R.addItem(p, 'ironHatchet');
+  assert.deepEqual(R.gatherYield(p, 'oak'), { wood: 5 });
+});
+
+test('souls need an empty Soul Jar; the Titan needs four witches and three souls', () => {
+  const p = player('bog');
+  assert.equal(R.captureSoul(p), false);
+  R.addItem(p, 'moonstone'); R.addItem(p, 'slime', 2);
+  assert.equal(R.craft(p, 'soulJar', new Set(['altar']), () => 1), 2);
+  assert.equal(R.captureSoul(p), true);
+  assert.equal(R.count(p, 'humanSoul'), 1);
+  assert.equal(R.count(p, 'soulJar'), 1);
+  p.skills.spellcraft = 25 * 9 ** 2; p.mana = p.maxMana = 200;
+  assert.equal(R.castBlocker(p, 'titan', 3), 'Needs a coven of 4');
+  assert.match(R.castBlocker(p, 'titan', 4), /Human Soul/);
+  R.addItem(p, 'humanSoul', 2); R.addItem(p, 'heartSigil');
+  assert.equal(R.castBlocker(p, 'titan', 4), null);
+  assert.ok(R.knownSpells(p).includes('glamour') && R.knownSpells(p).at(-1) === 'titan');
+});
+
+test('glamour needs dust; calm villagers do not flee, alarmed ones do', () => {
+  const p = player('wild');
+  assert.match(R.castBlocker(p, 'glamour', 1), /Glamour Dust/);
+  R.addItem(p, 'glamourDust');
+  assert.equal(R.castBlocker(p, 'glamour', 1), null);
+  const you = { x: 0, z: 0, hp: 100 }, calm = makeCreature('villager', 5, 0, { calm: true }), scared = makeCreature('villager', 5, 0, { calm: false });
+  for (let i = 0; i < 60; i++) { updateCreature(calm, you, flat, 1 / 60, false, () => {}); updateCreature(scared, you, flat, 1 / 60, false, () => {}); }
+  assert.notEqual(calm.state, 'flee');
+  assert.equal(scared.state, 'flee');
+  const hunter = makeCreature('hunter', 8, 0);
+  let bitten = 0;
+  for (let i = 0; i < 120; i++) updateCreature(hunter, you, flat, 1 / 60, false, d => { bitten += d; });
+  assert.equal(bitten, 0, 'calm hunters leave you be');
+  hunter.angry = true;
+  for (let i = 0; i < 180; i++) updateCreature(hunter, you, flat, 1 / 60, false, d => { bitten += d; });
+  assert.ok(bitten > 0, 'alarmed hunters attack');
 });

@@ -1,8 +1,8 @@
 // Player rules: inventory, skills, crafting, alchemy, building, needs, magic and quests. No rendering here.
-import { CLASSES, SPELLS, ITEMS, RECIPES, BUILDINGS, SKILLS } from './data.mjs';
+import { CLASSES, SPELLS, ITEMS, RECIPES, BUILDINGS, SKILLS, SELL, BUY } from './data.mjs';
 import { NODES } from './world.mjs';
 
-const STATS = () => ({ kills: 0, eliteKills: 0, boss: 0, discovered: 0, attuned: 0, talked: 0, brewed: 0, covenCasts: 0, crafted: {}, gathered: {}, built: {} });
+const STATS = () => ({ kills: 0, eliteKills: 0, boss: 0, trades: 0, souls: 0, titans: 0, discovered: 0, attuned: 0, talked: 0, brewed: 0, covenCasts: 0, crafted: {}, gathered: {}, built: {} });
 
 export function newPlayer(classId, spawn) {
   const k = CLASSES[classId];
@@ -54,6 +54,7 @@ export function train(p, id, xp) {
 export function weapon(p) {
   const melee = (CLASSES[p.class].melee ?? 1) * (1 + (skillLevel(p, 'hunting') - 1) * .03);
   if (count(p, 'spear')) return { name: 'spear', damage: 22 * melee, reach: 3.6 };
+  if (count(p, 'ironHatchet')) return { name: 'hatchet', damage: 18 * melee, reach: 2.6 };
   if (count(p, 'hatchet')) return { name: 'hatchet', damage: 13 * melee, reach: 2.6 };
   return { name: 'fists', damage: 6 * melee, reach: 2.2 };
 }
@@ -92,9 +93,9 @@ export function gatherYield(p, type, random = Math.random) {
     train(p, 'herbalism', 2);
   } else {
     const bonus = Math.floor((skillLevel(p, 'gathering') - 1) / 5);
-    if (node.yields === 'stone') out.stone = (count(p, 'pick') ? 3 : 1) + bonus;
-    else if (node.yields === 'moonstone') { if (!count(p, 'pick')) return out; out.moonstone = 1; }
-    else out.wood = (count(p, 'hatchet') ? 3 : 1) + bonus;
+    if (node.yields === 'stone') out.stone = (count(p, 'ironPick') ? 5 : count(p, 'pick') ? 3 : 1) + bonus;
+    else if (node.yields === 'moonstone') { if (!count(p, 'pick') && !count(p, 'ironPick')) return out; out.moonstone = count(p, 'ironPick') ? 2 : 1; }
+    else out.wood = (count(p, 'ironHatchet') ? 5 : count(p, 'hatchet') ? 3 : 1) + bonus;
     train(p, 'gathering', 3);
   }
   for (const [id, n] of Object.entries(out)) { addItem(p, id, n); p.stats.gathered[id] = (p.stats.gathered[id] ?? 0) + n; }
@@ -162,7 +163,8 @@ export function useItem(p, id) {
   if (item.hurt) { p.hp = Math.max(1, p.hp - item.hurt); return `Ate ${item.name}. Your stomach turns.`; }
   return item.food ? `Ate ${item.name}.` : `Used ${item.name}.`;
 }
-export const bestFood = p => ['cookedMeat', 'honeycomb', 'berries', 'rawMeat'].find(id => count(p, id));
+export const bestFood = p => ['cookedMeat', 'bread', 'honeycomb', 'berries', 'rawMeat'].find(id => count(p, id));
+export const warm = p => !!(count(p, 'cloak') || count(p, 'woolCloak'));
 export function drink(p) { p.water = Math.min(100, p.water + 25); }
 
 // Advance needs, effects and regeneration by dt seconds. Returns true if the player died this tick.
@@ -176,7 +178,7 @@ export function tickSurvival(p, dt, { sprinting = false, swimming = false, cold 
   if (swimming && p.stamina === 0) p.hp -= dt * 4;
   if (p.food === 0) p.hp -= dt;
   if (p.water === 0) p.hp -= dt * 1.5;
-  if (cold && !count(p, 'cloak')) p.hp -= dt * .8;
+  if (cold && !warm(p)) p.hp -= dt * .8;
   if (p.poison > 0) { p.poison = Math.max(0, p.poison - dt); p.hp -= dt * 3; }
   if (p.effects.regen) p.hp = Math.min(p.maxHp, p.hp + dt * p.effects.regenRate);
   for (const k of Object.keys(p.effects)) if (k !== 'regenRate') { p.effects[k] -= dt; if (p.effects[k] <= 0) delete p.effects[k]; }
@@ -190,7 +192,7 @@ export function respawn(p) {
 }
 
 // ---------- magic ----------
-export const knownSpells = p => [...CLASSES[p.class].spells, 'summonbeast', 'binding', 'storm', 'guardian', 'grandrite'];
+export const knownSpells = p => [...CLASSES[p.class].spells, 'summonbeast', 'binding', 'storm', 'guardian', 'grandrite', 'glamour', 'titan'];
 
 // `covenNearby` counts witches within reach including you. Returns null if castable, else the reason.
 export function castBlocker(p, id, covenNearby) {
@@ -209,6 +211,28 @@ export function payCast(p, id) {
   if (s.reagent) payAll(p, s.reagent);
   if (s.coven > 1) p.stats.covenCasts++;
   return train(p, 'spellcraft', 8 + s.coven * 6);
+}
+
+// ---------- trade with the human villages ----------
+// Returns null if the trade can happen, else the reason. Selling gives silver; buying costs it.
+export function tradeBlocker(p, id, selling) {
+  if (selling) return SELL[id] && count(p, id) ? null : 'Nothing to sell';
+  if (!BUY[id]) return 'Not for sale';
+  return count(p, 'silver') >= BUY[id] ? null : `Needs ${BUY[id]} silver`;
+}
+export function trade(p, id, selling) {
+  if (tradeBlocker(p, id, selling)) return false;
+  if (selling) { removeItem(p, id); addItem(p, 'silver', SELL[id]); }
+  else { removeItem(p, 'silver', BUY[id]); addItem(p, id); }
+  p.stats.trades++;
+  return true;
+}
+
+// A human falls: their soul goes into an empty Soul Jar if you carry one. Returns true if captured.
+export function captureSoul(p) {
+  if (!removeItem(p, 'soulJar')) return false;
+  addItem(p, 'humanSoul'); p.stats.souls++;
+  return true;
 }
 
 // ---------- the coven ----------
@@ -235,12 +259,15 @@ export const QUESTS = [
   { title: 'A Witch\'s Tools', text: 'Craft a Stone Hatchet [TAB].', xp: 60, progress: p => done(p.stats.crafted.hatchet) },
   { title: 'Found a Village', text: 'Build a Village Heart [B].', xp: 100, progress: p => done(p.stats.built.heart) },
   { title: 'The Cauldron Bubbles', text: 'Build a Cauldron and brew any potion.', xp: 120, progress: p => (done(p.stats.built.cauldron) + done(p.stats.brewed)) / 2 },
+  { title: 'A Borrowed Face', text: 'Brew Glamour Dust, cast Glamour [8] and trade with a human merchant.', xp: 150, progress: p => done(p.stats.trades) },
   { title: 'Seek a Sister', text: 'At level 3, bring a gift to another region\'s elder and ask her to join your coven.', xp: 200, progress: p => done(p.coven.length >= 1) },
   { title: 'Two Voices', text: 'Brew Coven Ink and cast a two-witch coven spell [3] or [4].', xp: 200, progress: p => done(p.stats.covenCasts) },
   { title: 'The Third Hearth', text: 'At level 6, recruit a second sister.', xp: 250, progress: p => done(p.coven.length >= 2) },
   { title: 'Moonstone', text: 'Mine moonstone in the Crown mountains and make Moonstone Dust at a Ritual Altar.', xp: 250, progress: p => done(p.stats.crafted.moonDust) },
   { title: 'The Full Coven', text: 'At level 9, recruit the last sister.', xp: 400, progress: p => done(p.coven.length >= 3) },
   { title: 'Heartfire', text: 'Slay a lair elite and take its Heartfire.', xp: 400, progress: p => done(p.stats.eliteKills) },
+  { title: 'Soul Harvest', text: 'Make Soul Jars at your altar and capture 3 human souls.', xp: 300, progress: p => Math.min(1, p.stats.souls / 3) },
+  { title: 'The Wyrd Titan', text: 'With a full coven, three souls and a Heartfire Sigil, summon the Wyrd Titan [9].', xp: 500, progress: p => done(p.stats.titans) },
   { title: 'The Grand Rite', text: 'With all four witches, break the Unwitch\'s ward at the Crown [7] and destroy her.', xp: 2000, progress: p => done(p.stats.boss) },
 ];
 

@@ -47,8 +47,10 @@ export const SPELLS = {
   storm: { name: 'Storm of the Three', kind: 'nova', coven: 3, skill: 5, mana: 50, cooldown: 25, reagent: { moonDust: 1 }, damage: 120, radius: 15, color: '#8fd3f4' },
   guardian: { name: 'Call the Guardian', kind: 'summon', coven: 3, skill: 5, mana: 50, cooldown: 60, reagent: { moonDust: 1, covenInk: 1 }, summon: 'guardian', duration: 90, color: '#c9c3b8' },
   grandrite: { name: 'The Grand Rite', kind: 'rite', coven: 4, skill: 7, mana: 80, cooldown: 30, reagent: { heartSigil: 1 }, damage: 400, radius: 25, breakWard: 25, color: '#ff3c6e' },
+  glamour: { name: 'Glamour', kind: 'glamour', coven: 1, skill: 1, mana: 25, cooldown: 10, reagent: { glamourDust: 1 }, duration: 150, color: '#f0e0ff' },
+  titan: { name: 'Summon the Wyrd Titan', kind: 'summon', coven: 4, skill: 8, mana: 100, cooldown: 180, reagent: { humanSoul: 3, heartSigil: 1 }, summon: 'titan', duration: 90, color: '#7dffd8' },
 };
-export const COVEN_SPELLS = ['summonbeast', 'binding', 'storm', 'guardian', 'grandrite'];
+export const COVEN_SPELLS = ['summonbeast', 'binding', 'storm', 'guardian', 'grandrite', 'titan'];
 
 export const ITEMS = {
   wood: { name: 'Wood' }, stone: { name: 'Stone' }, fiber: { name: 'Fiber' }, moonstone: { name: 'Moonstone' },
@@ -72,7 +74,15 @@ export const ITEMS = {
   ironbark: { name: 'Ironbark Brew', effect: 'ironbark', duration: 45 },
   gloamsight: { name: 'Gloamsight Philter', effect: 'sight', duration: 180 },
   covenInk: { name: 'Coven Ink', reagent: true }, moonDust: { name: 'Moonstone Dust', reagent: true }, heartSigil: { name: 'Heartfire Sigil', reagent: true },
+  glamourDust: { name: 'Glamour Dust', reagent: true }, soulJar: { name: 'Soul Jar' }, humanSoul: { name: 'Human Soul', reagent: true },
+  silver: { name: 'Silver' },
+  bread: { name: 'Bread', food: 30, water: 5 }, ale: { name: 'Ale', water: 40, food: 5 },
+  ironHatchet: { name: 'Iron Hatchet', gear: true }, ironPick: { name: 'Iron Pick', gear: true }, woolCloak: { name: 'Wool Cloak', gear: true },
 };
+
+// What the human merchants pay for witch goods (in silver), and what they sell.
+export const SELL = { hide: 3, bone: 1, feather: 1, honeycomb: 3, cookedMeat: 2, moonstone: 6, healing: 10, manaTonic: 10, swiftfoot: 8, ironbark: 8, gloamsight: 8, venomCoat: 8, mireEssence: 12, gloamEssence: 12, bloomEssence: 12, wildEssence: 12, mirecap: 2, bogmyrtle: 2, leechweed: 2, nightshade: 2, gravemoss: 2, shadowcap: 2, sunpetal: 2, honeyclover: 2, dewbell: 2, wolfsbane: 2, elderberry: 2, fernheart: 2 };
+export const BUY = { bread: 4, ale: 3, ironHatchet: 40, ironPick: 45, woolCloak: 25, bandage: 5 };
 
 // station: null (by hand), cauldron or altar (built in your village). makes: how many one craft yields.
 export const RECIPES = [
@@ -89,6 +99,8 @@ export const RECIPES = [
   { id: 'ironbark', station: 'cauldron', needs: { bogmyrtle: 2, elderberry: 1 } },
   { id: 'gloamsight', station: 'cauldron', needs: { shadowcap: 2, nightshade: 1 } },
   { id: 'covenInk', station: 'cauldron', needs: { gravemoss: 1, wolfsbane: 1, feather: 1 }, makes: 2 },
+  { id: 'glamourDust', station: 'cauldron', needs: { dewbell: 1, nightshade: 1, feather: 1 }, makes: 2 },
+  { id: 'soulJar', station: 'altar', needs: { moonstone: 1, slime: 2 }, makes: 2 },
   { id: 'moonDust', station: 'altar', needs: { moonstone: 2, ectoplasm: 1 }, makes: 2 },
   { id: 'heartSigil', station: 'altar', needs: { heartfire: 1, mireEssence: 1, gloamEssence: 1, bloomEssence: 1, wildEssence: 1 }, makes: 3 },
 ];

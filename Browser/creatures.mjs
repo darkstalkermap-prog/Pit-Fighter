@@ -31,7 +31,7 @@ export function updateCreature(c, player, ground, dt, night, bite, wards = [], r
 
   const ward = wards.find(w => Math.hypot(w.x - c.x, w.z - c.z) < 30);
   if (b.temper === 'timid') {
-    if (alive && (c.hurt > 0 || d < (player.sprinting ? 22 : 12))) c.state = 'flee';
+    if (alive && (c.hurt > 0 || !c.calm && d < (player.sprinting ? 22 : 12))) c.state = 'flee';
     else if (c.state === 'flee' && d > 45) c.state = 'wander';
   } else if (alive && (b.temper === 'hostile' || c.angry) && !ward) {
     const sense = b.elite ? 45 : b.temper === 'hostile' ? (night ? 36 : 22) : 60;
@@ -52,7 +52,8 @@ export function updateCreature(c, player, ground, dt, night, bite, wards = [], r
     if (c.timer <= 0) {
       c.timer = 3 + random() * 6;
       const a = random() * Math.PI * 2, r = 8 + random() * 25, hx = c.homeX ?? c.x, hz = c.homeZ ?? c.z;
-      c.tx = (b.elite ? hx : c.x) + Math.cos(a) * r; c.tz = (b.elite ? hz : c.z) + Math.sin(a) * r;
+      const leash = b.elite || c.homeX !== undefined, roam = c.roam ?? r;
+      c.tx = (leash ? hx : c.x) + Math.cos(a) * Math.min(r, roam); c.tz = (leash ? hz : c.z) + Math.sin(a) * Math.min(r, roam);
     }
     const tx = c.tx - c.x, tz = c.tz - c.z;
     if (Math.hypot(tx, tz) > 1) { heading = Math.atan2(tz, tx); speed = pace * .25; }
@@ -79,6 +80,7 @@ export const ALLIES = {
   beast: { name: 'Summoned Beast', speed: 8.5, damage: 16, reach: 2.4, cooldown: 1.2, size: 1.1, color: '#d6b46a' },
   guardian: { name: 'Stone Guardian', speed: 6, damage: 45, reach: 3.5, cooldown: 1.6, size: 2.4, color: '#8a8780' },
   witch: { name: 'Coven Sister', speed: 8, damage: 11, reach: 16, cooldown: 2.2, ranged: true },
+  titan: { name: 'The Wyrd Titan', speed: 7, damage: 150, reach: 6, cooldown: 1.5, size: 4.5, color: '#1f3a36' },
 };
 
 export function makeAlly(kind, x, z, life = Infinity) {

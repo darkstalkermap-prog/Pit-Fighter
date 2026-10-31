@@ -89,15 +89,21 @@ export class WorldView {
     this.block(body, k.robe, 0, .75, 0, 1, 1.3, 1, new THREE.ConeGeometry(.55, 1, 6));
     this.block(body, k.robe, 0, 1.38, 0, .5, .5, .5);
     this.block(body, '#e2bfa0', 0, 1.78, 0, .4, .4, .4);
-    this.block(body, k.hat, 0, 1.97, 0, 1.1, .05, 1.1);
-    this.block(body, k.hat, 0, 2.38, 0, 1, .85, 1, new THREE.ConeGeometry(.3, 1, 5)).rotation.z = -.18;
+    const brim = this.block(body, k.hat, 0, 1.97, 0, 1.1, .05, 1.1);
+    const hat = this.block(body, k.hat, 0, 2.38, 0, 1, .85, 1, new THREE.ConeGeometry(.3, 1, 5)); hat.rotation.z = -.18;
+    // Glamour disguise: a plain brown traveller's hood and cloak instead of hat and robe colours.
+    const hood = this.block(body, '#6a5238', 0, 1.86, -.02, .5, .45, .5, this.ball); hood.visible = false;
+    const cloak = new THREE.Group(); cloak.visible = false; body.add(cloak);
+    this.block(cloak, '#6a5238', 0, .75, 0, 1.06, 1.32, 1.06, new THREE.ConeGeometry(.55, 1, 6));
+    this.block(cloak, '#6a5238', 0, 1.38, 0, .54, .54, .54);
     const arm = new THREE.Group(); arm.position.set(.32, 1.45, 0); body.add(arm);
     this.block(arm, k.robe, 0, -.3, 0, .16, .6, .16);
+    const sleeve = this.block(arm, '#6a5238', 0, -.3, 0, .18, .62, .18); sleeve.visible = false;
     const tool = new THREE.Group(); tool.position.set(0, -.6, .05); arm.add(tool);
     this.block(tool, '#6b4a2e', 0, 0, .4, .07, .07, 1.1);
     const head = this.block(tool, '#8a8a85', 0, 0, .85, .12, .22, .24);
     const legs = [-.15, .15].map(x => this.block(g, '#221a2a', x, .22, 0, .14, .45, .14));
-    Object.assign(g.userData, { body, arm, tool, head, legs, faces: 'z' });
+    Object.assign(g.userData, { body, arm, tool, head, legs, hat, brim, hood, cloak, sleeve, faces: 'z' });
     return g;
   }
 
@@ -117,6 +123,13 @@ export class WorldView {
         const pivot = new THREE.Group(); pivot.position.set(x * L * .38, y - H / 2, z * W * .4); g.add(pivot);
         this.block(pivot, color, 0, -(y - H / 2) / 2, 0, size * .14, y - H / 2, size * .14); legs.push(pivot);
       }
+    } else if (plan === 'human') {
+      add(color, 0, size * 1.15, 0, size * .32, size * .7, size * .5);
+      add(accent, 0, size * 1.68, 0, size * .3, size * .3, size * .3);
+      if (b.hat) { add('#151515', 0, size * 1.86, 0, size * .75, size * .04, size * .75); add('#151515', 0, size * 1.98, 0, size * .32, size * .24, size * .32); }
+      for (const z of [-1, 1]) { const arm = new THREE.Group(); arm.position.set(0, size * 1.45, z * size * .32); g.add(arm); this.block(arm, color, 0, -size * .3, 0, size * .13, size * .6, size * .13); wings.push(arm); }
+      for (const z of [-1, 1]) { const leg = new THREE.Group(); leg.position.set(0, size * .8, z * size * .12); g.add(leg); this.block(leg, '#3a3026', 0, -size * .4, 0, size * .15, size * .8, size * .15); legs.push(leg); }
+      if (b.hat) this.block(wings[1], '#5a4a3a', size * .25, -size * .55, 0, size * .7, size * .08, size * .08);
     } else if (plan === 'biped') {
       add(color, 0, size * 1.2, 0, size * .7, size * .9, size * .45);
       add(accent, 0, size * 1.85, 0, size * .45, size * .42, size * .42);
@@ -180,6 +193,27 @@ export class WorldView {
     return g;
   }
 
+  // A human village as two merged meshes: walls and buildings. Positions are relative to the village centre.
+  village(v) {
+    const parts = [], L = v.layout, at = (geo, color, x, y, z, rot = 0) => { const g = painted(geo, color); g.rotateY(rot); g.translate(x - v.x, y - v.y, z - v.z); parts.push(g); };
+    for (const p of L.posts) at(new THREE.BoxGeometry(.5, 3.4, 3.6), '#6b4a2e', p.x, p.y + 1.4, p.z, p.rot);
+    for (const g of L.gates) for (const side of [-1, 1]) {
+      const a = g.angle + side * .16, x = v.x + Math.cos(a) * 40, z = v.z + Math.sin(a) * 40;
+      at(new THREE.BoxGeometry(.8, 5.5, .8), '#4d3420', x, this.world.ground(x, z) + 2.5, z);
+    }
+    for (const h of L.houses) {
+      const tall = h.chapel ? 5 : 3;
+      at(new THREE.BoxGeometry(h.w, tall, h.d), h.chapel ? '#b8b0a0' : '#c9b48a', h.x, h.y + tall / 2, h.z, h.rot);
+      at(new THREE.ConeGeometry(Math.max(h.w, h.d) * .78, 2.6, 4), h.chapel ? '#4a4a52' : '#8a4a32', h.x, h.y + tall + 1.3, h.z, h.rot + Math.PI / 4);
+      if (h.chapel) { at(new THREE.BoxGeometry(1.8, 9, 1.8), '#b8b0a0', h.x, h.y + 4.5, h.z); at(new THREE.ConeGeometry(1.4, 4, 4), '#4a4a52', h.x, h.y + 11, h.z, Math.PI / 4); at(new THREE.BoxGeometry(.2, 1.6, .2), '#d6b46a', h.x, h.y + 13.6, h.z); at(new THREE.BoxGeometry(.9, .2, .2), '#d6b46a', h.x, h.y + 13.8, h.z); }
+    }
+    const st = L.stall;
+    at(new THREE.BoxGeometry(2.6, 1, 1.4), '#6b4a2e', st.x, st.y + .5, st.z);
+    at(new THREE.BoxGeometry(3.2, .12, 2), '#b83a3a', st.x, st.y + 2.6, st.z);
+    for (const [dx, dz] of [[-1.4, -.8], [1.4, -.8], [-1.4, .8], [1.4, .8]]) at(new THREE.BoxGeometry(.12, 2.6, .12), '#4d3420', st.x + dx, st.y + 1.3, st.z + dz);
+    return new THREE.Mesh(mergeGeometries(parts), this.nodeMaterial);
+  }
+
   buildPois() {
     this.poiMeshes = [];
     for (const poi of this.world.pois) {
@@ -194,6 +228,7 @@ export class WorldView {
         for (let i = 0; i < 12; i++) { const a = i / 12 * Math.PI * 2; b('#6b4a2e', Math.cos(a) * 14, .6, Math.sin(a) * 14, .25, 1.2, .25); }
       }
       if (poi.type === 'lair') { for (let i = 0; i < 10; i++) { const a = i * 2.4; b(i % 2 ? '#d8d0c0' : '#3a3036', Math.cos(a) * (4 + i), .4, Math.sin(a) * (4 + i), 1.2, .6 + (i % 3) * .4, .8); } }
+      if (poi.type === 'village') g.add(this.village(poi));
       if (poi.type === 'crown') { for (let i = 0; i < 12; i++) { const a = i / 12 * Math.PI * 2; b('#1a1420', Math.cos(a) * 55, 7, Math.sin(a) * 55, 3, 14 + (i % 3) * 5, 3, new THREE.ConeGeometry(.5, 1, 4)); } b('#ff3c6e', 0, .1, 0, 30, .1, 30, new THREE.CylinderGeometry(.5, .5, 1, 24), true).material = new THREE.MeshBasicMaterial({ color: '#3a1020' }); }
       this.scene.add(g); this.poiMeshes.push(g);
     }
@@ -298,7 +333,7 @@ export class WorldView {
     mesh.position.set(e.x, e.y, e.z);
     mesh.rotation.y = u.faces === 'z' ? -e.yaw + Math.PI / 2 : -e.yaw;
     u.legs?.forEach((leg, i) => { const s = Math.sin(walk * 2.2 + (i % 2 ? Math.PI : 0) + (i > 1 ? Math.PI / 2 : 0)) * .5; if (u.faces === 'z') leg.rotation.x = s; else leg.rotation.z = s; });
-    u.wings?.forEach((w, i) => { if (u.plan === 'biped') w.rotation.z = Math.sin(walk * 2.2 + i * Math.PI) * .5; else w.rotation.x = Math.sin(now * 14 + i * Math.PI) * .7 * (i ? 1 : -1); });
+    u.wings?.forEach((w, i) => { if (u.plan === 'biped' || u.plan === 'human') w.rotation.z = Math.sin(walk * 2.2 + i * Math.PI) * .5; else w.rotation.x = Math.sin(now * 14 + i * Math.PI) * .7 * (i ? 1 : -1); });
     u.segs?.forEach((s, i) => { if (u.plan === 'serpent') s.position.z = Math.sin(walk * 1.5 - i * .9) * .25 * (i + 1) * .4; else s.scale.y = s.scale.x * (.85 + Math.sin(now * 5) * .1); });
   }
 
@@ -309,7 +344,7 @@ export class WorldView {
       m.visible = true;
       m.scale.setScalar(c.hurt > 2.8 ? 1.12 : 1);
     });
-    this.sync('allies', allies, a => a.ally === 'witch' ? this.witch(a.cls) : a.ally === 'fox' ? this.familiar('fox') : (() => { const s = ALLIES[a.ally]; return this.creature(a.ally === 'guardian' ? 'biped' : 'quad', s.size, s.color, '#9a6bff', { horns: true }); })(), (m, a) => this.pose(m, a, a.walk, now));
+    this.sync('allies', allies, a => a.ally === 'witch' ? this.witch(a.cls) : a.ally === 'fox' ? this.familiar('fox') : (() => { const s = ALLIES[a.ally]; return this.creature(a.ally === 'beast' ? 'quad' : 'biped', s.size, s.color, a.ally === 'titan' ? '#7dffd8' : '#9a6bff', { horns: true }); })(), (m, a) => this.pose(m, a, a.walk, now));
     this.sync('elders', elders, e => this.witch(e.cls, 1.05), (m, e) => this.pose(m, e, 0, now));
     this.sync('boss', boss ? [boss] : [], () => this.boss(), (m, b) => { this.pose(m, b, b.walk, now); m.userData.ward.visible = b.warded; m.userData.ward.rotation.y = now; });
     this.sync('buildings', buildings, b => this.building(b.type), (m, b) => { m.position.set(b.x, b.y, b.z); m.rotation.y = b.rot ?? 0; });
@@ -361,12 +396,14 @@ export class WorldView {
   }
 
   render(state) {
-    const { player, yaw, pitch, dayTime, now, swing, toolName, lights, moving, sight, dt } = state;
+    const { player, yaw, pitch, dayTime, now, swing, toolName, lights, moving, sight, dt, glamour = false } = state;
     const w = this.player, u = w.userData;
     w.position.set(player.x, player.y, player.z); w.rotation.y = -player.yaw + Math.PI / 2;
     u.legs.forEach((leg, i) => { leg.rotation.x = moving ? Math.sin(now * 10 + i * Math.PI) * .6 : 0; });
     u.arm.rotation.x = swing > 0 ? -2.2 * Math.sin((1 - swing) * Math.PI) : moving ? Math.sin(now * 10) * .3 : 0;
     u.tool.visible = toolName !== 'fists';
+    u.hat.visible = u.brim.visible = !glamour; u.hood.visible = u.cloak.visible = u.sleeve.visible = glamour;
+    if (this.pet) this.pet.visible = !glamour;
     if (this.pet) {
       const t = this.pet, raven = t.userData.plan === 'bird', tx = player.x - Math.cos(player.yaw + .9) * 1.4, tz = player.z - Math.sin(player.yaw + .9) * 1.4;
       t.position.x += (tx - t.position.x) * Math.min(1, dt * 5); t.position.z += (tz - t.position.z) * Math.min(1, dt * 5);
