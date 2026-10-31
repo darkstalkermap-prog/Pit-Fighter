@@ -117,7 +117,7 @@ footer{position:absolute;bottom:0;left:0;right:0;padding:12px 24px;display:flex;
 #tip{position:fixed;z-index:50;max-width:300px;padding:8px 11px;background:#1a1226f5;border:1px solid #9a6bff66;box-shadow:0 8px 24px #0009;font:12px/1.5 Arial,sans-serif;color:#e8deff;pointer-events:none;opacity:0;transition:opacity .12s}
 #tip.on{opacity:1}#tip b{color:var(--gold);font-weight:normal}#tip small{color:var(--dim)}
 #help{z-index:30}
-#spells{z-index:25;pointer-events:auto}
+#spells{z-index:25;pointer-events:auto}#pack,#map{z-index:28}
 
 #helpBody section.spells{column-span:all}#helpBody section.spells p{margin:10px 0 2px;color:#e8deff}#helpBody section.spells b{color:var(--gold);font-weight:normal}#helpBody section.spells small{color:var(--dim)}
 #quit{margin-top:8px}
