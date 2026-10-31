@@ -75,6 +75,7 @@ export const NODES = {
   rock: { yields: 'stone', hp: 5, radius: 1.3 },
   moonstone: { yields: 'moonstone', hp: 4, radius: 1 },
   bush: { yields: 'fiber', hp: 2, radius: 0 },
+  nest: { yields: 'feather', hp: 2, radius: 0 },
   mirecap: { herb: true, hp: 1, radius: 0, color: '#c98a4b' },
   bogmyrtle: { herb: true, hp: 1, radius: 0, color: '#7e9a52' },
   leechweed: { herb: true, hp: 1, radius: 0, color: '#5b2f3a' },
@@ -96,9 +97,19 @@ const DENSITY = {
   peaks: { pine: .04, rock: .28, moonstone: .04 },
   snow: { rock: .12, moonstone: .07 },
   swamp: { deadtree: .15, bush: .2, mirecap: .075, bogmyrtle: .075, leechweed: .06, rock: .03 },
-  darkforest: { gloomtree: .38, pine: .12, rock: .06, bush: .12, nightshade: .06, gravemoss: .075, shadowcap: .06 },
+  darkforest: { nest: .008, gloomtree: .38, pine: .12, rock: .06, bush: .12, nightshade: .06, gravemoss: .075, shadowcap: .06 },
   meadow: { blossom: .04, oak: .02, rock: .06, bush: .14, sunpetal: .1, honeyclover: .09, dewbell: .075 },
-  forest: { oak: .3, pine: .18, rock: .06, bush: .18, wolfsbane: .06, elderberry: .075, fernheart: .075 },
+  forest: { nest: .008, oak: .3, pine: .18, rock: .06, bush: .18, wolfsbane: .06, elderberry: .075, fernheart: .075 },
+};
+
+// Around each starting Hearth: an extra helping of everything a new witch needs, including the wood, fiber and
+// feathers (from nests) for a broom. Each land's own trees and herbs, within START_RADIUS metres.
+export const START_RADIUS = 350;
+const START_BOUNTY = {
+  swamp: { deadtree: .2, bush: .2, nest: .1, rock: .12, mirecap: .08, bogmyrtle: .08, leechweed: .06 },
+  darkforest: { gloomtree: .22, bush: .2, nest: .1, rock: .12, nightshade: .08, gravemoss: .08, shadowcap: .06 },
+  meadow: { blossom: .1, oak: .1, bush: .22, nest: .1, rock: .12, sunpetal: .08, honeyclover: .08, dewbell: .06 },
+  forest: { oak: .14, pine: .08, bush: .2, nest: .1, rock: .12, wolfsbane: .08, elderberry: .08, fernheart: .06 },
 };
 
 const POI_NAMES = ['Hexmoor', 'Blackthorn Vale', 'Ravenhollow', 'Mosswick', 'Cinderfold', 'Wyrdmere', 'Gallows Rise', 'Thistledown', 'Briarwatch', 'Hollowell', 'Nightshade Fen', 'Ashgrove', 'Grimsby Barrow', 'Crowfoot Tor', 'Elderroot', 'Wolfsbane Ridge'];
@@ -287,6 +298,18 @@ export function createWorld(seed = 1337) {
       for (const [type, p] of Object.entries(table)) {
         acc += p;
         if (roll < acc) { nodes.push({ id: `${cx},${cz},${i}`, type, x, z, y: ground(x, z), s: NODES[type].herb ? .8 + s * .3 : s, rot }); break; }
+      }
+    }
+    // The start bounty: extra nodes near a Hearth, with ids of their own so the usual ones keep theirs.
+    const hearth = pois.find(p => p.type === 'hearth' && Math.hypot(p.x - (cx + .5) * CHUNK, p.z - (cz + .5) * CHUNK) < START_RADIUS + CHUNK);
+    if (hearth) for (let i = 0; i < 160; i++) {
+      const x = cx * CHUNK + random() * CHUNK, z = cz * CHUNK + random() * CHUNK, roll = random(), s = .75 + random() * .6, rot = random() * Math.PI * 2;
+      const d = Math.hypot(x - hearth.x, z - hearth.z);
+      if (d > START_RADIUS || d < 30 || height(x, z) < 1.5 || pois.some(p => p.type === 'village' && Math.hypot(p.x - x, p.z - z) < 55)) continue;
+      let acc = 0;
+      for (const [type, p] of Object.entries(START_BOUNTY[hearth.region])) {
+        acc += p;
+        if (roll < acc) { nodes.push({ id: `${cx},${cz},s${i}`, type, x, z, y: ground(x, z), s: NODES[type].herb ? .8 + s * .3 : s, rot }); break; }
       }
     }
     return nodes;

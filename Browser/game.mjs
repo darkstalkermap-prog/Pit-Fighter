@@ -202,7 +202,7 @@ function toggleMount() {
   const blocker = R.mountBlocker(p, { swimming: world.ground(p.x, p.z) < -1.3 });
   if (blocker) { toast(blocker); return; }
   p.mounted = true;
-  toast(R.flightBlocker(p) ? 'You mount your broom: 30% faster. Enchant it with the Skyward Charm [0] and it will fly.' : 'You mount your Skyward Broom. Hold Space to fly, X to descend.');
+  toast(R.flightBlocker(p) ? `You mount your broom: ${Math.round((ITEMS[p.equip.mount].speed - 1) * 100)}% faster. Enchant it with the Skyward Charm [0] and it will fly.` : 'You mount your Skyward Broom. Hold Space to fly, X to descend.');
 }
 
 // ---------- interaction ----------

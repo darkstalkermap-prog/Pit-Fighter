@@ -133,6 +133,9 @@ export function gatherYield(p, type, random = Math.random) {
     out[type] = (1 + Math.floor((skillLevel(p, 'herbalism') - 1) / 4)) * forage;
     train(p, 'herbalism', 6);
     p.stats.gathered.herbs = (p.stats.gathered.herbs ?? 0) + out[type];
+  } else if (type === 'nest') {
+    out.feather = 2;
+    train(p, 'gathering', 2);
   } else if (type === 'bush') {
     out.fiber = 2;
     if (random() < .45) out.berries = forage;
@@ -283,7 +286,7 @@ export function captureSoul(p) {
 }
 
 // ---------- the broom ----------
-// Riding is 30% faster. A plain broom only skims the ground; the two-witch Skyward Charm enchants it for good
+// Riding is 70% faster. A plain broom only skims the ground; the two-witch Skyward Charm enchants it for good
 // into a Skyward Broom, which flies on its own from then on.
 export const FLIGHT_CEILING = 150;
 export function mountBlocker(p, { swimming = false } = {}) {

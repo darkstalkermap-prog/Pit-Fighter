@@ -335,7 +335,7 @@ test('old saves put on the best gear they carry', () => {
   assert.equal(R.count(p, 'hatchet'), 1);
 });
 
-test('the broom: 30% faster ridden; the two-witch Skyward Charm makes it fly for good', () => {
+test('the broom: 70% faster ridden; the two-witch Skyward Charm makes it fly for good', () => {
   const p = player('bloom');
   assert.match(R.mountBlocker(p), /Mount slot/);
   Object.assign(p.inv, { wood: 8, fiber: 6, feather: 4 });
@@ -345,7 +345,7 @@ test('the broom: 30% faster ridden; the two-witch Skyward Charm makes it fly for
   assert.equal(R.mountBlocker(p), null);
   const walk = R.moveSpeedFactor(p);
   p.mounted = true;
-  assert.ok(Math.abs(R.moveSpeedFactor(p) / walk - 1.3) < 1e-9);
+  assert.ok(Math.abs(R.moveSpeedFactor(p) / walk - 1.7) < 1e-9);
   assert.match(R.flightBlocker(p), /Skyward Charm/, 'a plain broom only skims the ground');
   p.skills.spellcraft = 25 * 2 ** 2; p.mana = p.maxMana;
   assert.equal(R.castBlocker(p, 'skyward', 1), 'Needs a coven of 2');
@@ -361,4 +361,20 @@ test('the broom: 30% faster ridden; the two-witch Skyward Charm makes it fly for
   R.unequip(p, 'mount');
   assert.equal(p.mounted, false, 'taking the broom off dismounts');
   assert.equal(R.count(p, 'skyBroom'), 1);
+});
+
+test('every hearth starts with enough close by for a broom: wood, fiber and feathers', () => {
+  for (const id of Object.keys(REGIONS)) {
+    const h = world.hearthOf(id), got = { wood: 0, fiber: 0, feather: 0 };
+    for (let cx = Math.floor((h.x - 200) / 250); cx <= Math.floor((h.x + 200) / 250); cx++)
+      for (let cz = Math.floor((h.z - 200) / 250); cz <= Math.floor((h.z + 200) / 250); cz++)
+        for (const n of world.scatter(cx, cz)) {
+          if (Math.hypot(n.x - h.x, n.z - h.z) > 150) continue;
+          const yields = NODES[n.type].yields;
+          if (yields in got) got[yields] += NODES[n.type].hp * (yields === 'feather' || yields === 'fiber' ? 2 : 1);
+        }
+    assert.ok(got.wood >= 8 && got.fiber >= 6 && got.feather >= 4, `${h.name} within 150 m: ${JSON.stringify(got)}`);
+  }
+  const p = player('wild');
+  assert.deepEqual(R.gatherYield(p, 'nest'), { feather: 2 });
 });

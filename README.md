@@ -102,6 +102,10 @@ Ten per land (40 in all), from timid prey to hunters that only come out at night
 
 Creatures drop meat, hide, bone, feathers, slime, chitin, silk, venom, ectoplasm, honeycomb and the essences of their land.
 
+## Getting started
+
+Every Hearth sits in a generous patch of its land's trees, bushes, rocks and herbs (about 350 m around), with **bird's nests** that give feathers. Two trees, two bushes and one nest are enough for your first **Witch's Broom** (8 wood, 6 fiber, 4 feathers).
+
 ## Equipment and the broom
 
 The **Inventory** shows eight slots: Head, Chest, Cloak, Amulet, Weapon, two Tools and Mount. Only worn gear counts: equipped tools set how much each strike gathers (a hatchet for wood, a pick for stone and moonstone), the weapon slot sets your strike (otherwise you hit with your best tool), armor reduces damage taken (25 armor blocks a third), a cloak keeps out the cold, and a Moonstone Amulet adds 25 mana. Newly crafted or bought gear puts itself on if its slot is free.
@@ -114,7 +118,7 @@ The **Inventory** shows eight slots: Head, Chest, Cloak, Amulet, Weapon, two Too
 | Moonstone Amulet (+25 mana) | Amulet | moonstone + silk |
 | Witch's Broom | Mount | wood + fiber + feathers |
 
-Mount the broom with **F** to travel 30% faster; it skims over water as well as land. A plain broom cannot fly: cast the **Skyward Charm** [0] with a second witch beside you (an AI sister or another player in your coven) and it becomes a **Skyward Broom** for good, which flies on its own: hold **Space** to climb and **X** to descend. Coven sisters ride alongside. Stepping off high in the air means a hard landing.
+Mount the broom with **F** to travel 70% faster; it skims over water as well as land. A plain broom cannot fly: cast the **Skyward Charm** [0] with a second witch beside you (an AI sister or another player in your coven) and it becomes a **Skyward Broom** for good, which flies on its own: hold **Space** to climb and **X** to descend. Coven sisters ride alongside. Stepping off high in the air means a hard landing.
 
 ## Progression
 

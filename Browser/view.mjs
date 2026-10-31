@@ -39,6 +39,8 @@ function nodeGeometries() {
     deadtree: mergeGeometries([trunk(4.5, .12, .3, '#4a4238'), painted(new THREE.BoxGeometry(1.8, .16, .16), '#4a4238', .7, 3.2, 0)]),
     rock: painted(new THREE.DodecahedronGeometry(1.5, 0).scale(1, .65, 1.1), '#7a7a74', 0, .4, 0),
     moonstone: mergeGeometries([painted(new THREE.DodecahedronGeometry(1.1, 0).scale(1, .6, 1), '#6a6a72', 0, .3, 0), painted(new THREE.OctahedronGeometry(.5, 0).scale(1, 2, 1), '#9fe8ff', .2, 1.1, 0), painted(new THREE.OctahedronGeometry(.35, 0).scale(1, 2, 1), '#9fe8ff', -.4, .9, .3)]),
+    // A twig nest on a stump with two eggs: feathers for a broom.
+    nest: mergeGeometries([painted(new THREE.CylinderGeometry(.35, .45, .6, 5, 1, true), '#5c4430', 0, .3, 0), painted(new THREE.TorusGeometry(.42, .14, 3, 6).rotateX(Math.PI / 2), '#8a6a3a', 0, .65, 0), painted(new THREE.OctahedronGeometry(.12, 0).scale(1, 1.3, 1), '#e8e4d8', .08, .7, 0), painted(new THREE.OctahedronGeometry(.11, 0).scale(1, 1.3, 1), '#cfe0e8', -.1, .7, .06)]),
     bush: mergeGeometries([painted(new THREE.IcosahedronGeometry(.85, 0), '#3d5e2e', 0, .55, 0), painted(new THREE.OctahedronGeometry(.18, 0), '#8a2f4a', .55, .8, .3)]),
   };
   // Herbs: a three-sided stem and a flower head, 11 triangles.
@@ -333,7 +335,7 @@ export class WorldView {
     const q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0), zero = new THREE.Matrix4().makeScale(0, 0, 0);
     for (const [type, nodes] of Object.entries(byType)) {
       const mesh = new THREE.InstancedMesh(this.nodeGeometry[type], this.nodeMaterial, nodes.length);
-      mesh.matrixAutoUpdate = false; mesh.userData.small = !!NODES[type].herb || type === 'bush' || type === 'rock';
+      mesh.matrixAutoUpdate = false; mesh.userData.small = !!NODES[type].herb || type === 'bush' || type === 'rock' || type === 'nest';
       mesh.visible = !mesh.userData.small || chunk.d <= this.quality.small;
       nodes.forEach((n, i) => {
         const matrix = new THREE.Matrix4().compose(new THREE.Vector3(n.x, n.y - .1, n.z), q.setFromAxisAngle(up, n.rot), new THREE.Vector3(n.s, n.s, n.s));
