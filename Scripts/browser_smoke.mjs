@@ -10,9 +10,13 @@ let browser;
 try{
  browser=await chromium.launch({headless:true,...(process.env.CHROMIUM_PATH?{executablePath:process.env.CHROMIUM_PATH}:{}),args:['--no-sandbox','--use-angle=swiftshader','--enable-unsafe-swiftshader']});
  const page=await browser.newPage({viewport:{width:1280,height:800}}),errors=[];
+ page.setDefaultTimeout(60000);
+ if(process.env.CPU_THROTTLE){const cdp=await page.context().newCDPSession(page);await cdp.send('Emulation.setCPUThrottlingRate',{rate:Number(process.env.CPU_THROTTLE)});}
+ // Wait for the game itself to reach a state, however slowly frames render.
+ const until=(fn,arg)=>page.waitForFunction(fn,arg,{timeout:60000,polling:100});
  page.on('pageerror',e=>errors.push(e.message));page.on('console',msg=>{if(msg.type()==='error'&&!msg.text().includes('favicon'))errors.push(msg.text());});
  await page.goto(`http://127.0.0.1:${server.address().port}/Coven/`);
- await page.waitForTimeout(1500);
+ await until(()=>!!window.__coven);
  assert.equal(await page.locator('#play').isEnabled(),true,'WebGL initializes');
  assert.ok(await page.evaluate(()=>!!document.querySelector('canvas').getContext('webgl2')),'Uses WebGL 2');
  await mkdir(new URL('../test-results/',import.meta.url),{recursive:true});
@@ -28,9 +32,9 @@ try{
  assert.equal(await page.evaluate(()=>__coven.world.region(__coven.state.player.x,__coven.state.player.z)),'swamp','Bog Witch starts in the Mirefen');
 
  const before=await page.evaluate(()=>({x:__coven.state.player.x,z:__coven.state.player.z}));
- await page.keyboard.down('KeyW');await page.waitForTimeout(800);await page.keyboard.up('KeyW');
- const after=await page.evaluate(()=>({x:__coven.state.player.x,z:__coven.state.player.z}));
- assert.ok(Math.hypot(after.x-before.x,after.z-before.z)>1,'Player walks');
+ await page.keyboard.down('KeyW');
+ await until(b=>Math.hypot(__coven.state.player.x-b.x,__coven.state.player.z-b.z)>1,before);
+ await page.keyboard.up('KeyW');
  assert.equal(await page.locator('#spells .spell').count(),9,'Spell bar shows class and coven spells');
  assert.match(await page.locator('#prompt').textContent()+await page.locator('#questTitle').textContent(),/Elder/,'Elder quest is shown');
 
@@ -61,16 +65,19 @@ try{
  const goTo=(x,z)=>page.evaluate(([x,z])=>{const p=__coven.state.player;p.x=x;p.z=z;p.y=__coven.world.ground(x,z);},[x,z]);
  const [v1,v2]=await page.evaluate(()=>__coven.humanVillages.slice(0,2).map(v=>({id:v.id,x:v.x,z:v.z,stall:v.layout.stall,name:v.name})));
  await page.evaluate(()=>{const p=__coven.state.player;p.hp=p.maxHp=5000;});
- await goTo(v1.x+5,v1.z+5);await page.waitForTimeout(600);
- assert.ok(await page.evaluate(id=>__coven.villageState.get(id).alarm>0,v1.id),'Undisguised witch raises the alarm');
- assert.ok(await page.evaluate(id=>__coven.creatures.some(c=>c.village===id&&c.kind==='hunter'&&c.state==='chase'),v1.id),'Witch hunters give chase');
+ await goTo(v1.x+5,v1.z+5);
+ await until(id=>__coven.villageState.get(id).alarm>0,v1.id); // undisguised witch raises the alarm
+ await until(id=>__coven.creatures.some(c=>c.village===id&&c.kind==='hunter'&&c.state==='chase'),v1.id); // witch hunters give chase
  await shot(page,'village-alarm');
 
  // Glamoured, a witch can walk into another village and trade.
- await goTo(v2.x,v2.z+120);await page.waitForTimeout(300);
+ await goTo(v2.x,v2.z+120);
+ await until(id=>__coven.villageState.get(id).spawned,v2.id);
  await page.evaluate(()=>{const p=__coven.state.player;Object.assign(p.inv,{glamourDust:1,hide:5,soulJar:1});p.mana=p.maxMana;__coven.cast(7);});
  assert.ok(await page.evaluate(()=>__coven.state.player.effects.glamour>0),'Glamour cast');
- await goTo(v2.stall.x-2.5,v2.stall.z);await page.waitForTimeout(600);
+ await goTo(v2.stall.x-2.5,v2.stall.z);
+ const ticks=await page.evaluate(()=>__coven.state.clock);
+ await until(t=>__coven.state.clock>t+.5,ticks);
  assert.equal(await page.evaluate(id=>__coven.villageState.get(id).alarm,v2.id),0,'Glamoured witch is not recognised');
  await shot(page,'village-glamour');
  await page.evaluate(()=>__coven.interact());
@@ -96,19 +103,18 @@ try{
  // Hunt: a wolf in front of you falls to Leech Bolts and drops loot.
  await page.evaluate(()=>{const p=__coven.state.player;p.mana=p.maxMana=999;p.hp=p.maxHp=999;for(const c of __coven.creatures){c.dead=true;c.hp=0;}__coven.spawn('wolf',p.x+Math.cos(p.yaw)*10,p.z+Math.sin(p.yaw)*10);});
  const k0=await page.evaluate(()=>__coven.state.player.stats.kills);
- for(let i=0;i<15&&(await page.evaluate(()=>__coven.state.player.stats.kills))===k0;i++){await page.keyboard.press('Digit1');await page.waitForTimeout(1300);}
+ for(let i=0;i<40&&(await page.evaluate(()=>__coven.state.player.stats.kills))===k0;i++){await page.keyboard.press('Digit1');await page.waitForTimeout(1300);}
  assert.equal(await page.evaluate(()=>__coven.state.player.stats.kills),k0+1,'Wolf slain by spells');
  assert.ok(await page.evaluate(()=>__coven.state.player.inv.hide>=2),'Wolf dropped hide');
 
- await page.keyboard.press('KeyM');await page.waitForTimeout(300);
- assert.equal(await page.locator('#map').isVisible(),true);
+ await page.keyboard.press('KeyM');
+ await page.locator('#map').waitFor({state:'visible'});
  await shot(page,'map');
  await page.keyboard.press('KeyM');
 
  // Visit the Crown and see the warded boss.
  await page.evaluate(()=>{const p=__coven.state.player;p.x=60;p.z=60;p.y=__coven.world.ground(60,60);p.hp=p.maxHp=5000;});
- await page.waitForTimeout(1500);
- assert.equal(await page.evaluate(()=>__coven.boss?.warded),true,'Unwitch appears warded');
+ await until(()=>__coven.boss?.warded===true); // the Unwitch appears, warded
  await page.evaluate(()=>{const p=__coven.state.player;p.x=12;p.z=0;for(const cls of ['bloom','wild'])if(!p.coven.includes(cls)){p.coven.push(cls);__coven.allies.push({id:990+p.coven.length,ally:'witch',cls,x:p.x,z:p.z+2,y:p.y,yaw:0,life:Infinity,cooldown:0,walk:0});}for(const a of __coven.allies){a.x=p.x+1;a.z=p.z+1;}p.inv.heartSigil=1;p.mana=p.maxMana;__coven.cast(6);});
  assert.equal(await page.evaluate(()=>__coven.boss?.warded),false,'Grand Rite of four witches breaks the ward');
  assert.ok(await page.evaluate(()=>__coven.boss.hp<=5600),'Grand Rite deals full damage once the ward breaks');
