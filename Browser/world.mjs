@@ -89,15 +89,16 @@ export const NODES = {
   fernheart: { herb: true, hp: 1, radius: 0, color: '#3f9a4a' },
 };
 
+// Chance per scatter attempt (300 attempts per 250 m chunk) of each node type, by surface.
 const DENSITY = {
-  beach: { rock: .02 },
-  mud: { deadtree: .04, leechweed: .02 },
-  peaks: { pine: .03, rock: .14, moonstone: .015 },
-  snow: { rock: .06, moonstone: .03 },
-  swamp: { deadtree: .1, bush: .1, mirecap: .025, bogmyrtle: .025, leechweed: .02, rock: .01 },
-  darkforest: { gloomtree: .32, pine: .1, rock: .03, bush: .06, nightshade: .02, gravemoss: .025, shadowcap: .02 },
-  meadow: { blossom: .03, oak: .015, rock: .03, bush: .07, sunpetal: .035, honeyclover: .03, dewbell: .025 },
-  forest: { oak: .28, pine: .18, rock: .03, bush: .1, wolfsbane: .02, elderberry: .025, fernheart: .025 },
+  beach: { rock: .04, bush: .03 },
+  mud: { deadtree: .06, leechweed: .06, bush: .05 },
+  peaks: { pine: .04, rock: .28, moonstone: .04 },
+  snow: { rock: .12, moonstone: .07 },
+  swamp: { deadtree: .15, bush: .2, mirecap: .075, bogmyrtle: .075, leechweed: .06, rock: .03 },
+  darkforest: { gloomtree: .38, pine: .12, rock: .06, bush: .12, nightshade: .06, gravemoss: .075, shadowcap: .06 },
+  meadow: { blossom: .04, oak: .02, rock: .06, bush: .14, sunpetal: .1, honeyclover: .09, dewbell: .075 },
+  forest: { oak: .3, pine: .18, rock: .06, bush: .18, wolfsbane: .06, elderberry: .075, fernheart: .075 },
 };
 
 const POI_NAMES = ['Hexmoor', 'Blackthorn Vale', 'Ravenhollow', 'Mosswick', 'Cinderfold', 'Wyrdmere', 'Gallows Rise', 'Thistledown', 'Briarwatch', 'Hollowell', 'Nightshade Fen', 'Ashgrove', 'Grimsby Barrow', 'Crowfoot Tor', 'Elderroot', 'Wolfsbane Ridge'];
@@ -211,7 +212,7 @@ export function createWorld(seed = 1337) {
 
   function scatter(cx, cz) {
     const random = rng(hash(seed, cx, cz)), nodes = [];
-    for (let i = 0; i < 240; i++) {
+    for (let i = 0; i < 300; i++) {
       const x = cx * CHUNK + random() * CHUNK, z = cz * CHUNK + random() * CHUNK, roll = random(), s = .75 + random() * .6, rot = random() * Math.PI * 2;
       const h = height(x, z), table = DENSITY[surface(x, z, h)];
       if (!table || pois.some(p => Math.abs(p.x - x) < (p.type === 'crown' ? 140 : 32) && Math.abs(p.z - z) < (p.type === 'crown' ? 140 : 32))) continue;

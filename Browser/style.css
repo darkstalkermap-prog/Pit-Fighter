@@ -71,3 +71,14 @@ footer{position:absolute;bottom:0;left:0;right:0;padding:12px 24px;display:flex;
 .card p{margin:4px 0;font:12px/1.5 Arial,sans-serif;color:#cbbfdc}.card small{font:11px Arial,sans-serif;color:var(--dim);margin-top:auto}
 #hud{bottom:118px}
 @media(max-width:760px){#spells{flex-wrap:wrap;width:94vw;justify-content:center;bottom:60px}.spell{width:70px;height:48px}#hud{bottom:180px}}
+
+#netStatus{position:absolute;left:24px;top:78px;font:9px Arial,sans-serif;letter-spacing:2px;color:#9fe8a0;text-shadow:0 1px 3px #000;pointer-events:none}
+#covenList span.real{border:2px solid #9fe8a0}
+#chat{position:absolute;right:24px;bottom:150px;width:min(360px,60vw);font:12px/1.5 Arial,sans-serif;text-shadow:0 1px 3px #000}
+#chatLog{pointer-events:none}#chatLog div{transition:opacity 2s}#chatLog div.old{opacity:0}#chatLog b{color:#d6b46a;font-weight:normal}
+#chatInput{width:100%;margin-top:6px;padding:8px;background:#140f1cee;color:var(--ink);border:1px solid var(--violet);font:13px Arial,sans-serif}
+#mp{margin:0 0 18px;font:12px Arial,sans-serif;color:#cbbfdc}.check{display:flex;gap:8px;align-items:center;cursor:pointer}
+#mpFields{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px;max-width:420px}
+#mpFields label{display:flex;flex-direction:column;gap:3px;font-size:10px;letter-spacing:1px;color:var(--dim)}
+#mpFields label:last-child{grid-column:1/-1}
+#mpFields input{padding:7px;background:#1d1628;color:var(--ink);border:1px solid #ffffff2b;font:12px Arial,sans-serif}

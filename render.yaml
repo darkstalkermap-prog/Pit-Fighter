@@ -1,0 +1,12 @@
+# Render Blueprint: deploys the Coven server (game files + multiplayer worlds) as a free web service.
+services:
+  - type: web
+    name: coven
+    runtime: node
+    plan: free
+    buildCommand: npm ci && npm run build
+    startCommand: npm run server
+    healthCheckPath: /api/ping
+    envVars:
+      - key: NODE_VERSION
+        value: "24"

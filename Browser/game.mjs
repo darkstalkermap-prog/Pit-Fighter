@@ -4,8 +4,9 @@ import { CLASSES, SPELLS, ITEMS, RECIPES, BUILDINGS, SKILLS, VILLAGE_RADIUS } fr
 import { CREATURE, BESTIARY, BOSS, ELITE_RESPAWN } from './bestiary.mjs';
 import * as R from './rules.mjs';
 import { makeCreature, pickCreature, updateCreature, hurtCreature, makeAlly, updateAlly, ALLIES } from './creatures.mjs';
+import { Net, defaultServer } from './net.mjs';
 
-const SAVE_KEY = 'coven-save-v2', DAY_LENGTH = 1200, NODE_RESPAWN = 600, EXPLORE = 64, MAX_CREATURES = 16, COVEN_REACH = 25;
+const SAVE_KEY = 'coven-save-v2', ONLINE_KEY = 'coven-online', DAY_LENGTH = 1200, NODE_RESPAWN = 600, EXPLORE = 64, MAX_CREATURES = 16, COVEN_REACH = 25;
 const REGION_CLASS = { swamp: 'bog', darkforest: 'hex', meadow: 'bloom', forest: 'wild' };
 const SPELL_KEYS = ['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'Digit6', 'Digit7'];
 const $ = s => document.querySelector(s), canvas = $('#world');
@@ -29,6 +30,8 @@ function loadState() {
 }
 function saveState() { if (state) try { localStorage.setItem(SAVE_KEY, JSON.stringify(state)); } catch { /* storage unavailable: progress lasts this session only */ } }
 
+const net = new Net();
+let remotes = new Map(), villages = new Map(), serverBoss = null, netTimer = 0;
 let state = null, explored, creatures = [], allies = [], projectiles = [], boss = null, keys = new Set(), mode = 'menu';
 let yaw = 0, pitch = .3, swing = 0, swingCooldown = 0, last = 0, accumulator = 0, saveTimer = 0, spawnTimer = 0, moving = false, hurtFlash = 0, mapBase = null, tab = 'items', nextId = 1;
 
@@ -77,7 +80,9 @@ const hearthFires = () => world.pois.filter(p => p.type === 'hearth');
 const nearFire = r => !!builtNear('campfire', r) || hearthFires().some(h => near(h, state.player, r));
 const stations = () => new Set(['cauldron', 'altar'].filter(t => builtNear(t, 8)));
 const sisters = () => allies.filter(a => a.ally === 'witch');
-const covenNearby = () => 1 + sisters().filter(s => near(s, state.player, COVEN_REACH)).length;
+const covenMates = () => { const c = online.coven.toLowerCase(); return c ? [...remotes.values()].filter(r => r.coven.toLowerCase() === c) : []; };
+const covenNearby = () => Math.min(4, 1 + sisters().filter(s => near(s, state.player, COVEN_REACH)).length + covenMates().filter(r => r.hp > 0 && near(r, state.player, COVEN_REACH)).length);
+const allBuildings = () => [...state.buildings, ...[...villages.values()].flatMap(v => v.list)];
 const elders = () => world.pois.filter(p => p.type === 'hearth').map(h => ({ id: `elder-${h.region}`, cls: REGION_CLASS[h.region], x: h.x + 3, z: h.z + 3, y: h.y, yaw: Math.PI / 4, hearth: h }))
   .filter(e => !state.player.coven.includes(e.cls));
 const wards = () => state.buildings.filter(b => b.type === 'totem');
@@ -128,6 +133,9 @@ function interaction() {
   return null;
 }
 
+// A spell ring, shown here and to other players.
+function ring(x, y, z, r, color) { view.ring(x, y, z, r, color); net.send({ type: 'fx', x, y, z, r, color }); }
+
 // ---------- combat ----------
 function hostiles() { return boss ? [...creatures, boss] : creatures; }
 
@@ -150,6 +158,7 @@ function pickTarget(range) {
 function damage(target, amount, opts = {}, fromPlayer = true) {
   const p = state.player;
   if (target === boss) {
+    if (net.online) { net.send({ type: 'bossHit', amount }); boss.hp -= amount * (boss.warded ? .1 : 1); boss.hurt = 3; return; }
     boss.hp -= amount * (boss.warded ? .1 : 1); boss.hurt = 3;
     state.bossHp = boss.hp;
     if (boss.hp <= 0) {
@@ -189,7 +198,7 @@ function strike() {
   for (const s of Object.keys(SKILLS)) if (R.skillLevel({ skills: before }, s) < R.skillLevel(p, s)) trained(s, R.skillLevel(p, s));
   toast(Object.entries(got).map(([id, n]) => `+${n} ${ITEMS[id].name}`).join('  '));
   const hp = (state.nodeHp[node.id] ?? NODES[node.type].hp) - 1;
-  if (hp <= 0) { delete state.nodeHp[node.id]; state.harvested[node.id] = state.clock + NODE_RESPAWN; view.hideNode(node.id); }
+  if (hp <= 0) { delete state.nodeHp[node.id]; state.harvested[node.id] = state.clock + NODE_RESPAWN; view.hideNode(node.id); net.send({ type: 'harvest', node: node.id, seconds: NODE_RESPAWN }); }
   else state.nodeHp[node.id] = hp;
   reward(2); quests();
 }
@@ -214,24 +223,24 @@ function cast(index) {
   const area = (x, z, radius, fn) => hostiles().filter(c => c.hp > 0 && Math.hypot(c.x - x, c.z - z) < radius).forEach(fn);
   if (s.kind === 'bolt') bolt(p, target, s.damage * power, s.color, { poison: s.poison, slow: s.slow, lifesteal: s.lifesteal });
   if (s.kind === 'aoe') {
-    view.ring(target.x, target.y, target.z, s.radius, s.color);
+    ring(target.x, target.y, target.z, s.radius, s.color);
     area(target.x, target.z, s.radius, c => damage(c, s.damage * power, { poison: s.poison }));
     if (s.healCoven) p.hp = Math.min(p.maxHp, p.hp + s.healCoven);
   }
   if (s.kind === 'self') {
     if (s.regen) { p.effects.regen = s.duration; p.effects.regenRate = s.regen; }
     if (s.shield) p.effects.barkskin = s.duration;
-    view.ring(p.x, p.y, p.z, 3, s.color);
+    ring(p.x, p.y, p.z, 3, s.color);
   }
   if (s.kind === 'nova' || s.kind === 'rite') {
-    view.ring(p.x, p.y, p.z, s.radius, s.color);
-    if (s.breakWard && boss && near(boss, p, s.radius + 10)) { boss.warded = false; boss.wardTimer = s.breakWard; toast('The ward shatters! Strike now!', true); }
+    ring(p.x, p.y, p.z, s.radius, s.color);
+    if (s.breakWard && boss && near(boss, p, s.radius + 10)) { boss.warded = false; boss.wardTimer = s.breakWard; net.send({ type: 'ward', seconds: s.breakWard }); toast('The ward shatters! Strike now!', true); }
     area(p.x, p.z, s.radius, c => damage(c, s.damage * power, { root: s.root }));
     if (s.kind === 'rite') toast('Four voices rise as one: THE GRAND RITE!', true);
   }
   if (s.kind === 'summon') {
     const a = makeAlly(s.summon, p.x + Math.cos(yaw) * 3, p.z + Math.sin(yaw) * 3, s.duration);
-    allies.push(a); view.ring(a.x, p.y, a.z, 3, s.color);
+    allies.push(a); ring(a.x, p.y, a.z, 3, s.color);
     toast(`${ALLIES[s.summon].name} answers the coven's call.`);
   }
   if (s.coven > 1) quests();
@@ -249,7 +258,7 @@ function placeBuilding(type) {
   state.buildings.push({ id: `b${Date.now()}${Math.random()}`, type, x, y, z, rot: -p.yaw + Math.PI / 2, stock: 0, grow: 0 });
   if (type === 'heart') { p.home = { x: x + 3, z, name: 'your village' }; toast('Your village is founded. Build within 60 m of the Heart.', true); }
   else toast(`Built: ${BUILDINGS[type].name}.`);
-  quests(); saveState();
+  quests(); saveState(); sendVillage();
   return true;
 }
 
@@ -261,7 +270,7 @@ function collide(x, z) {
     const r = r0 * n.s + .35, dx = x - n.x, dz = z - n.z, d = Math.hypot(dx, dz);
     if (d < r && d > 0) { x = n.x + dx / d * r; z = n.z + dz / d * r; }
   }
-  for (const b of state.buildings) {
+  for (const b of allBuildings()) {
     const def = BUILDINGS[b.type];
     if (Math.abs(b.x - x) > 6 || Math.abs(b.z - z) > 6 || ['campfire', 'garden', 'lantern'].includes(b.type)) continue;
     let px = b.x, pz = b.z;
@@ -347,15 +356,15 @@ function updateCreatures(dt) {
 
 function updateBoss(dt) {
   const p = state.player, dCrown = Math.hypot(p.x - CROWN.x, p.z - CROWN.z);
-  if (state.bossDefeated) return;
+  if (net.online ? serverBoss?.down : state.bossDefeated) { boss = null; return; }
   if (!boss && dCrown < 160) {
-    boss = { id: 'boss', x: CROWN.x, z: CROWN.z, y: world.ground(0, 0), yaw: 0, hp: state.bossHp, maxHp: BOSS.hp, warded: true, wardTimer: 0, slam: 3, cast: 2, summon: 12, walk: 0, hurt: 0 };
+    boss = { id: 'boss', x: CROWN.x, z: CROWN.z, y: world.ground(0, 0), yaw: 0, hp: net.online ? serverBoss.hp : state.bossHp, maxHp: BOSS.hp, warded: true, wardTimer: 0, slam: 3, cast: 2, summon: 12, walk: 0, hurt: 0 };
     toast('The Unwitch awakens at the Crown. Only the Grand Rite of a full coven can break her ward.', true);
   }
   if (!boss) return;
-  if (dCrown > 400) { boss = null; state.bossHp = BOSS.hp; return; }
+  if (dCrown > 400) { boss = null; if (!net.online) state.bossHp = BOSS.hp; return; }
   boss.hurt = Math.max(0, boss.hurt - dt);
-  if (!boss.warded) { boss.wardTimer -= dt; if (boss.wardTimer <= 0) { boss.warded = true; toast('The Unwitch\'s ward knits itself back together.'); } }
+  if (!boss.warded && !net.online) { boss.wardTimer -= dt; if (boss.wardTimer <= 0) { boss.warded = true; toast('The Unwitch\'s ward knits itself back together.'); } }
   const d = dist(boss, p);
   boss.yaw = Math.atan2(p.z - boss.z, p.x - boss.x);
   if (d > 6 && dCrown < 90 && p.hp > 0) { const nx = boss.x + Math.cos(boss.yaw) * 4 * dt, nz = boss.z + Math.sin(boss.yaw) * 4 * dt; if (Math.hypot(nx, nz) < 80) { boss.x = nx; boss.z = nz; boss.walk += 4 * dt; } }
@@ -410,6 +419,12 @@ function updateWorld(dt) {
 }
 
 function update(dt) {
+  netTimer -= dt;
+  if (netTimer <= 0 && net.online) {
+    netTimer = .1;
+    const p = state.player;
+    net.send({ type: 'state', x: p.x, y: p.y, z: p.z, yaw: p.yaw, hp: p.hp, maxHp: p.maxHp, level: p.level, cls: p.class, moving, swing });
+  }
   swing = Math.max(0, swing - dt / .45); swingCooldown -= dt; hurtFlash = Math.max(0, hurtFlash - dt);
   updatePlayer(dt); updateCreatures(dt); updateBoss(dt); updateProjectiles(dt); updateWorld(dt);
 }
@@ -440,6 +455,9 @@ function hud() {
     const s = SPELLS[id], blocker = R.castBlocker(p, id, covenHere), cd = p.cooldowns[id];
     return `<div class="spell${blocker ? ' locked' : ''}" title="${s.name}${blocker ? ': ' + blocker : ''}" style="--c:${s.color}"><kbd>${i + 1}</kbd><b>${s.name}</b><small>${s.coven > 1 ? `${s.coven} witches` : `${s.mana} mana`}</small>${cd ? `<i style="height:${cd / s.cooldown * 100}%"></i>` : ''}</div>`;
   }).join('');
+  const mates = covenMates();
+  for (const r of mates) { const el = document.createElement('span'); el.textContent = r.name[0]?.toUpperCase() ?? '?'; el.title = r.name; el.style.setProperty('--robe', CLASSES[r.cls]?.robe ?? '#555'); el.className = `real${near(r, p, COVEN_REACH) ? '' : ' far'}`; $('#covenList').insertBefore(el, $('#covenList small')); }
+  $('#netStatus').textContent = net.status === 'online' ? `ONLINE · ${net.world ?? online.world} · ${remotes.size} other${remotes.size === 1 ? '' : 's'}${online.coven ? ` · coven ‹${online.coven}›` : ''}` : net.status === 'offline' ? '' : net.status.toUpperCase() + '…';
   const bossShown = boss && near(boss, p, 120);
   $('#boss').classList.toggle('hidden', !bossShown);
   if (bossShown) { $('#bossHp').style.width = `${boss.hp / BOSS.hp * 100}%`; $('#bossWard').textContent = boss.warded ? 'WARDED: cast the Grand Rite [7]' : `WARD BROKEN · ${Math.ceil(boss.wardTimer)}s`; }
@@ -532,9 +550,95 @@ function renderMap() {
   ctx.fillStyle = '#fff'; ctx.strokeStyle = '#000'; ctx.beginPath(); ctx.moveTo(0, -9); ctx.lineTo(6, 7); ctx.lineTo(0, 3); ctx.lineTo(-6, 7); ctx.closePath(); ctx.fill(); ctx.stroke(); ctx.restore();
 }
 
+// ---------- multiplayer ----------
+function loadOnline() {
+  let o = {};
+  try { o = JSON.parse(localStorage.getItem(ONLINE_KEY)) ?? {}; } catch { /* defaults */ }
+  if (!o.key) o.key = Math.random().toString(36).slice(2) + Date.now().toString(36);
+  return { enabled: !!o.enabled, name: o.name ?? '', coven: o.coven ?? '', world: o.world ?? 'isle', server: o.server || defaultServer(), key: o.key };
+}
+const online = loadOnline();
+function saveOnline() { try { localStorage.setItem(ONLINE_KEY, JSON.stringify(online)); } catch { /* not remembered */ } }
+for (const f of ['name', 'coven', 'world', 'server']) { const el = $(`#mp-${f}`); el.value = online[f]; el.oninput = () => { online[f] = el.value.trim(); saveOnline(); }; }
+$('#mp-enabled').checked = online.enabled;
+$('#mp-enabled').onchange = () => { online.enabled = $('#mp-enabled').checked; saveOnline(); $('#mpFields').classList.toggle('hidden', !online.enabled); if (!online.enabled) net.close(); };
+$('#mpFields').classList.toggle('hidden', !online.enabled);
+
+function sendVillage() { net.send({ type: 'village', list: state.buildings.map(({ id, type, x, y, z, rot }) => ({ id, type, x, y, z, rot })) }); }
+function goOnline() {
+  if (!online.enabled || net.wanted) return;
+  if (!online.server) { toast('No multiplayer server set. Enter one in the menu to play online.'); return; }
+  remotes.clear(); villages.clear();
+  net.connect(online.server, () => {
+    const p = state.player;
+    return { type: 'hello', world: online.world, name: online.name, coven: online.coven, key: online.key, cls: p.class, level: p.level, buildings: state.buildings.map(({ id, type, x, y, z, rot }) => ({ id, type, x, y, z, rot })) };
+  });
+}
+const addRemote = r => remotes.set(r.id, { ...r, tx: r.x, ty: r.y, tz: r.z, walk: 0 });
+const remoteVillage = v => villages.set(v.owner, { name: v.name, list: v.list.map(b => ({ ...b, id: `${v.owner}:${b.id}` })) });
+function hideShared(node, seconds) { if (!state.harvested[node]) { state.harvested[node] = state.clock + seconds; view.hideNode(node); } }
+function setBoss(b) {
+  serverBoss = b;
+  if (boss) { boss.hp = b.hp; boss.warded = b.warded; boss.wardTimer = b.wardLeft; }
+}
+function chatLine(name, text) {
+  const line = document.createElement('div'), who = document.createElement('b');
+  who.textContent = name ? `${name}: ` : ''; line.append(who, text);
+  $('#chatLog').append(line);
+  while ($('#chatLog').children.length > 8) $('#chatLog').firstChild.remove();
+  setTimeout(() => line.classList.add('old'), 15000);
+}
+net.on('welcome', m => {
+  net.world = m.world;
+  remotes.clear(); villages.clear();
+  m.players.forEach(addRemote); m.villages.forEach(remoteVillage);
+  for (const [node, seconds] of m.harvested) hideShared(node, seconds);
+  setBoss(m.boss);
+  chatLine('', `Joined world “${m.world}”. ${m.players.length ? `${m.players.length} other witch${m.players.length > 1 ? 'es' : ''} here.` : 'You are alone here for now.'} Press Enter to chat.`);
+});
+net.on('join', m => { addRemote(m.player); chatLine('', `${m.player.name} has entered the isle.`); });
+net.on('leave', m => { const r = remotes.get(m.id); if (r) chatLine('', `${r.name} has left.`); remotes.delete(m.id); });
+net.on('snap', m => {
+  for (const o of m.players) {
+    const r = remotes.get(o.id);
+    if (!r) { addRemote(o); continue; }
+    Object.assign(r, { ...o, x: r.x, y: r.y, z: r.z, tx: o.x, ty: o.y, tz: o.z });
+    if (Math.hypot(r.tx - r.x, r.tz - r.z) > 50) Object.assign(r, { x: o.x, y: o.y, z: o.z });
+  }
+});
+net.on('harvest', m => hideShared(m.node, m.seconds));
+net.on('village', remoteVillage);
+net.on('boss', m => { const was = serverBoss?.warded; setBoss(m.boss); if (boss && was && !m.boss.warded) toast('A coven-sister\'s Grand Rite shatters the ward! Strike now!', true); });
+net.on('bossDown', m => {
+  setBoss(m.boss);
+  const p = state.player;
+  if (Math.hypot(p.x - CROWN.x, p.z - CROWN.z) < 250) {
+    boss = null; state.bossDefeated = true; p.stats.boss = 1;
+    toast(`The Unwitch is unmade${m.by ? ` — ${m.by} struck the last blow` : ''}. The coven is whole again.`, true); reward(BOSS.xp); quests(); saveState();
+  } else chatLine('', `${m.by} and their coven have unmade the Unwitch.`);
+});
+net.on('fx', m => view.ring(m.x, m.y, m.z, m.r, m.color));
+net.on('chat', m => chatLine(m.name, m.text));
+net.on('error', m => toast(m.text));
+net.on('status', (status) => {
+  if (status === 'reconnecting') chatLine('', 'Lost the server. Reconnecting…');
+  if (status !== 'online') { remotes.clear(); villages.clear(); }
+});
+
+function openChat() {
+  if (!net.online) { toast('Chat needs an online world. Turn on “Play online” in the menu.'); return; }
+  mode = 'chat'; keys.clear();
+  $('#chatInput').classList.remove('hidden'); $('#chatInput').value = ''; $('#chatInput').focus();
+}
+$('#chatInput').addEventListener('keydown', e => {
+  e.stopPropagation();
+  if (e.key === 'Enter') { const text = e.target.value.trim(); if (text) net.send({ type: 'chat', text }); }
+  if (e.key === 'Enter' || e.key === 'Escape') { e.target.blur(); $('#chatInput').classList.add('hidden'); mode = 'playing'; captureMouse(); }
+});
+
 // ---------- modes & input ----------
 function captureMouse() { try { canvas.requestPointerLock?.()?.catch?.(() => {}); } catch { /* arrow keys still turn */ } }
-function play() { mode = 'playing'; accumulator = 0; keys.clear(); for (const id of ['#overlay', '#pack', '#map', '#classes']) $(id).classList.add('hidden'); captureMouse(); }
+function play() { goOnline(); mode = 'playing'; accumulator = 0; keys.clear(); for (const id of ['#overlay', '#pack', '#map', '#classes']) $(id).classList.add('hidden'); captureMouse(); }
 function openPanel(name, withTab) {
   mode = name; keys.clear(); document.exitPointerLock?.();
   $(`#${name}`).classList.remove('hidden');
@@ -568,6 +672,7 @@ addEventListener('keydown', e => {
     if (mode === 'playing') openPanel('pack', want); else if (mode === 'pack') { if (tab === want || e.code === 'Tab') play(); else { tab = want; renderPack(); } }
     return;
   }
+  if (e.code === 'Enter' && mode === 'playing') { e.preventDefault(); openChat(); return; }
   if (e.code === 'KeyM') { if (mode === 'playing') openPanel('map'); else if (mode === 'map') play(); return; }
   if (mode !== 'playing') return;
   keys.add(e.code);
@@ -593,7 +698,7 @@ canvas.addEventListener('mousedown', e => {
 const saved = loadState();
 if (saved) { begin(saved); $('#play').innerHTML = 'CONTINUE <span>→</span>'; $('#newGame').classList.remove('hidden'); }
 else begin(freshState('wild'));
-window.__coven = { get state() { return state; }, world, view, get creatures() { return creatures; }, get allies() { return allies; }, get boss() { return boss; }, cast, placeBuilding, get mode() { return mode; }, spawn: (kind, x, z) => creatures.push(makeCreature(kind, x, z)) };
+window.__coven = { net, get remotes() { return remotes; }, get villages() { return villages; }, get state() { return state; }, world, view, get creatures() { return creatures; }, get allies() { return allies; }, get boss() { return boss; }, cast, placeBuilding, get mode() { return mode; }, spawn: (kind, x, z) => creatures.push(makeCreature(kind, x, z)) };
 // Without a save, the menu shows the world behind it but play starts at class selection.
 if (!saved) state = null;
 const preview = freshState('wild');
@@ -605,8 +710,10 @@ function frame(now) {
   if (!state) yaw += dt * .05;
   view.stream(p.x, p.z, mode === 'playing' ? 2 : 4);
   if (state) {
-    const lights = [...state.buildings.filter(b => b.type === 'campfire' || b.type === 'lantern'), ...hearthFires()];
-    view.syncWorld({ creatures, allies, boss, buildings: state.buildings, projectiles, elders: elders(), now: now / 1000 });
+    for (const r of remotes.values()) { const k = Math.min(1, dt * 10); r.x += (r.tx - r.x) * k; r.z += (r.tz - r.z) * k; r.y += (r.ty - r.y) * k; if (r.moving) r.walk += dt * 6; }
+    const built = allBuildings(), lights = [...built.filter(b => b.type === 'campfire' || b.type === 'lantern'), ...hearthFires()];
+    view.syncRemotes([...remotes.values()], now / 1000);
+    view.syncWorld({ creatures, allies, boss, buildings: built, projectiles, elders: elders(), now: now / 1000 });
     view.render({ player: p, yaw, pitch, dayTime: state.dayTime, now: now / 1000, dt, swing, toolName: R.weapon(p).name, lights, moving: moving && mode === 'playing', sight: !!p.effects.sight });
     hud();
   } else view.render({ player: p, yaw, pitch: .25, dayTime: .3, now: now / 1000, dt, swing: 0, toolName: 'fists', lights: hearthFires(), moving: false, sight: false });

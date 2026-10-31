@@ -316,6 +316,34 @@ export class WorldView {
     this.sync('projectiles', projectiles, p => new THREE.Mesh(this.ball, this.mat(p.color, true)), (m, p) => m.position.set(p.x, p.y, p.z));
   }
 
+  // A floating label. Drawn with canvas text, so names are never parsed as HTML.
+  nameTag(text) {
+    const c = document.createElement('canvas'), g = c.getContext('2d');
+    c.width = 512; c.height = 96;
+    g.font = 'bold 40px Georgia, serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.lineWidth = 8; g.strokeStyle = '#000000b0'; g.strokeText(text, 256, 48);
+    g.fillStyle = '#f2ecf8'; g.fillText(text, 256, 48);
+    const tag = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), transparent: true, depthWrite: false }));
+    tag.scale.set(4, .75, 1); tag.position.y = 3.1;
+    return tag;
+  }
+
+  // Other players: a witch of their class with their name (and coven) overhead.
+  syncRemotes(list, now) {
+    this.sync('remotes', list, r => {
+      const g = this.witch(r.cls);
+      g.add(this.nameTag(r.coven ? `${r.name} ‹${r.coven}›` : r.name));
+      g.userData.cls = r.cls;
+      return g;
+    }, (m, r) => {
+      this.pose(m, r, 0, now);
+      const u = m.userData;
+      u.legs.forEach((leg, i) => { leg.rotation.x = r.moving ? Math.sin(r.walk * 1.7 + i * Math.PI) * .6 : 0; });
+      u.arm.rotation.x = r.swing > 0 ? -2.2 * Math.sin((1 - r.swing) * Math.PI) : 0;
+      m.visible = r.hp > 0;
+    });
+  }
+
   // A ring that expands and fades: spell areas and impacts.
   ring(x, y, z, radius, color) {
     const m = new THREE.Mesh(new THREE.RingGeometry(.85, 1, 32), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: .8, side: THREE.DoubleSide }));

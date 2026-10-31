@@ -21,7 +21,31 @@ Use a desktop browser with a keyboard and mouse. Progress saves in the browser's
 | Q | Eat your best food |
 | Tab / B / K / C | Pack, build, skills, coven panels (Pack · Craft · Alchemy · Build · Skills · Coven) |
 | M | World map |
+| Enter | Chat (online) |
 | Esc | Pause / close panel |
+
+## Multiplayer
+
+Tick **Play online with others** on the title screen, pick a name, and optionally a **coven name** and a **world**. Everyone in the same world shares the isle:
+
+- You see each other's witches (class colours, name and coven overhead) and can chat with **Enter**.
+- Players who enter the **same coven name** form a real coven: each one within 25 m counts toward coven rites, alongside any AI sisters. Four real players can cast the Grand Rite together.
+- Trees, rocks and herbs someone depletes disappear for everyone until they regrow.
+- Everyone's village buildings are visible (and solid) to all.
+- The Unwitch is shared: her health, a broken ward and the final blow count for everyone at the Crown.
+- Wildlife is still spawned separately for each player.
+
+Worlds are named rooms (default `isle`), up to 32 players each. A world's shared state lasts while someone is in it; your own progress always saves in your browser.
+
+### Running a server
+
+The server (`server/`) serves the game and hosts the worlds over WebSockets at `/ws`.
+
+- **Render (free):** in Render choose *New → Blueprint* and pick this repository; `render.yaml` does the rest. Players can then play at the Render address directly, online by default.
+- **GitHub Pages:** to make the Pages build connect to that server, add a repository variable `COVEN_SERVER` (Settings → Secrets and variables → Actions → Variables) set to the server address, e.g. `https://coven.onrender.com`, and re-run the Pages workflow. Players can also paste a server address into the menu.
+- **Locally / LAN:** `npm start` builds and serves on port 8080 with multiplayer; friends on your network can join at `http://<your-ip>:8080`.
+
+Render's free tier sleeps when idle, so the first connection after a quiet spell can take up to a minute.
 
 ## The world
 
@@ -71,7 +95,7 @@ A twelve-step quest line guides the way from first gathering to the Grand Rite.
 
 ## Current limits
 
-This is a **single-player prototype**. Coven sisters are AI companions; real multiplayer covens need a game server and are future work. Graphics are placeholder-level. Balance numbers are first guesses.
+This is a prototype. Wildlife is not synchronised between players, and players cannot damage each other. Graphics are placeholder-level. Balance numbers are first guesses.
 
 ## Development
 
@@ -84,7 +108,7 @@ npm run build
 npm start
 ```
 
-`npm start` rebuilds and serves `_site` on port 8000. Do not open `Browser/index.html` directly; it is the build template. `npm run build` writes `Browser/Play-Coven.html` and `_site/index.html`.
+`npm start` rebuilds and runs the Coven server on port 8080 (set `PORT` to change it), with multiplayer. Do not open `Browser/index.html` directly; it is the build template. `npm run build` writes `Browser/Play-Coven.html` and `_site/index.html`.
 
 | File | Contents |
 | --- | --- |
@@ -95,6 +119,9 @@ npm start
 | `Browser/creatures.mjs` | Creature and ally behaviour |
 | `Browser/view.mjs` | Three.js rendering |
 | `Browser/game.mjs` | Game loop, input, HUD and panels |
+| `Browser/net.mjs` | WebSocket client |
+| `server/hub.mjs` | Shared-world rules: players, harvests, villages, the Unwitch, chat |
+| `server/server.mjs` | HTTP and WebSocket server |
 
 ### Browser test
 
@@ -104,4 +131,4 @@ npm run build
 npm run test:browser
 ```
 
-Set `CHROMIUM_PATH` to use an installed Chromium. The test serves the game at the Pages subpath, picks a class, walks, builds a village, brews at the cauldron, checks coven-spell gating, hunts a wolf with spells, opens the map, and breaks the Unwitch's ward with a four-witch Grand Rite. It fails on any browser error. Screenshots go to `test-results/`.
+Set `CHROMIUM_PATH` to use an installed Chromium. The test serves the game at the Pages subpath, picks a class, walks, builds a village, brews at the cauldron, checks coven-spell gating, hunts a wolf with spells, opens the map, and breaks the Unwitch's ward with a four-witch Grand Rite. A second test starts the real server with two browsers and checks presence, a real two-player coven rite, shared harvesting, shared villages, chat and leaving. Both fail on any browser error. Screenshots go to `test-results/`.

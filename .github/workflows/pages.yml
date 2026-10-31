@@ -10,6 +10,7 @@ on:
       - 'index.html'
       - 'Scripts/browser_smoke.mjs'
       - 'Scripts/build_browser.mjs'
+      - 'server/**'
       - '.github/workflows/pages.yml'
   workflow_dispatch:
 
@@ -34,6 +35,9 @@ jobs:
         run: npm test
       - name: Build standalone site
         run: npm run build
+        env:
+          # Set the repository variable COVEN_SERVER to your multiplayer server's address.
+          COVEN_SERVER: ${{ vars.COVEN_SERVER }}
       - name: Install test browser
         run: npx playwright install --with-deps chromium
       - name: Browser smoke test

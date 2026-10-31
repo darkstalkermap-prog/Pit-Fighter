@@ -3,7 +3,7 @@ import {readFile,writeFile,mkdir,rm} from 'node:fs/promises';
 import {fileURLToPath} from 'node:url';
 import path from 'node:path';
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
-const bundle=await build({entryPoints:[path.join(root,'Browser/game.mjs')],bundle:true,write:false,format:'iife',minify:true,target:['es2020'],legalComments:'inline'});
+const bundle=await build({entryPoints:[path.join(root,'Browser/game.mjs')],bundle:true,write:false,format:'iife',minify:true,target:['es2020'],legalComments:'inline',define:{__COVEN_SERVER__:JSON.stringify(process.env.COVEN_SERVER??'')}});
 let html=await readFile(path.join(root,'Browser/index.html'),'utf8');
 const css=await readFile(path.join(root,'Browser/style.css'),'utf8');
 const license=await readFile(path.join(root,'node_modules/three/LICENSE'),'utf8');
