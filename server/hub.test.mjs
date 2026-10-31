@@ -105,3 +105,48 @@ test('nothing is accepted before hello', () => {
   assert.equal(hub.worlds.size, 0);
   assert.equal(inbox.length, 0);
 });
+
+test('creatures are relayed to nearby players, and only their owner may report them', () => {
+  const { hub, join } = setup();
+  const a = join('A'), b = join('B'), far = join('Far');
+  for (const [p, x] of [[a, 0], [b, 20], [far, 3000]]) p.c.receive({ type: 'state', x, y: 0, z: 0 });
+  const id = a.c.id * 1e6 + 1;
+  a.c.receive({ type: 'creatures', list: [{ id, kind: 'wolf', x: 10, y: 0, z: 0, hp: 40, maxHp: 40, state: 'chase' }] });
+  b.c.receive({ type: 'creatures', list: [{ id, kind: 'wolf', x: 999, y: 0, z: 0, hp: 1, maxHp: 40 }] });
+  b.c.receive({ type: 'creatures', list: [{ id: 5, kind: 'wolf', x: 0, y: 0, z: 0 }, { id: b.c.id * 1e6 + 1, kind: 'dragon', x: 0, z: 0 }] });
+  hub.tick();
+  assert.deepEqual(b.last('snap').creatures.map(c => [c.id, c.x, c.state]), [[id, 10, 'chase']], 'only the owner moves it; bad ids and kinds are ignored');
+  assert.deepEqual(a.last('snap').creatures, [], 'owners are not sent their own creatures');
+  assert.deepEqual(far.last('snap').creatures, [], 'out of range');
+});
+
+test('hits go to the owner, bites to the bitten, deaths to everyone', () => {
+  const { join } = setup();
+  const a = join('A'), b = join('B');
+  const id = a.c.id * 1e6 + 7;
+  a.c.receive({ type: 'creatures', list: [{ id, kind: 'boar', x: 0, y: 0, z: 0, hp: 50, maxHp: 50 }] });
+  b.c.receive({ type: 'hit', id, amount: 30, poison: 4 });
+  assert.deepEqual([a.last('hit').id, a.last('hit').amount, a.last('hit').from], [id, 30, b.c.id]);
+  a.c.receive({ type: 'bite', to: b.c.id, damage: 9, poison: true, kind: 'boar' });
+  assert.deepEqual([b.last('bite').damage, b.last('bite').poison], [9, true]);
+  b.c.receive({ type: 'died', id, by: b.c.id });
+  assert.equal(b.last('died'), undefined, 'only the owner can report a death');
+  a.c.receive({ type: 'died', id, by: b.c.id });
+  assert.deepEqual([b.last('died').id, b.last('died').by, b.last('died').kind], [id, b.c.id, 'boar']);
+});
+
+test('creatures pass to the nearest player when their owner leaves or lets them go', () => {
+  const { hub, join } = setup();
+  const a = join('A'), b = join('B'), c = join('C');
+  for (const [p, x] of [[a, 0], [b, 30], [c, 2000]]) p.c.receive({ type: 'state', x, y: 0, z: 0 });
+  const wolf = a.c.id * 1e6 + 1, deer = a.c.id * 1e6 + 2;
+  a.c.receive({ type: 'creatures', list: [{ id: wolf, kind: 'wolf', x: 20, z: 0, hp: 40, maxHp: 40 }, { id: deer, kind: 'forestdeer', x: 1500, z: 0, hp: 30, maxHp: 30 }] });
+  a.c.receive({ type: 'creatures', gone: [deer] });
+  assert.equal(hub.worlds.get('isle').creatures.has(deer), false, 'no one near: it is let go');
+  a.c.close();
+  assert.equal(b.last('adopt').creature.id, wolf, 'B is nearest and adopts the wolf');
+  assert.equal(c.last('adopt'), undefined);
+  b.c.receive({ type: 'creatures', list: [{ id: wolf, kind: 'wolf', x: 25, z: 0, hp: 40, maxHp: 40 }] });
+  hub.tick();
+  assert.equal(hub.worlds.get('isle').creatures.get(wolf).x, 25, 'the new owner now runs it');
+});

@@ -94,7 +94,39 @@ const buildingsChanged = () => { builtCache = lightCache = null; };
 const ELDERS = world.pois.filter(p => p.type === 'hearth').map(h => ({ id: `elder-${h.region}`, cls: REGION_CLASS[h.region], x: h.x + 3, z: h.z + 3, y: h.y, yaw: Math.PI / 4, hearth: h }));
 let elderCache = null, elderKey = '';
 const elders = () => { const key = state.player.coven.join(); if (key !== elderKey || !elderCache) { elderKey = key; elderCache = ELDERS.filter(e => !state.player.coven.includes(e.cls)); } return elderCache; };
-const wards = () => state.buildings.filter(b => b.type === 'totem');
+const wards = () => allBuildings().filter(b => b.type === 'totem');
+
+// ---------- shared creatures ----------
+// Online, wild creatures are owned by whoever spawned them: we run the AI for ours and report it; others'
+// (flagged `remote`) arrive in snapshots and are only drawn and targeted here. Village humans stay local.
+const ID_SPAN = 1e6;
+let creatureSeq = 0, creatureTimer = 0, goneIds = [];
+const shared = c => c.village === undefined && !c.remote;
+function newCreature(kind, x, z, extra) {
+  const c = makeCreature(kind, x, z, extra);
+  if (net.online) c.id = net.id * ID_SPAN + (++creatureSeq % ID_SPAN);
+  return c;
+}
+// The living player (us or another) a creature should go for: the nearest within 80 m.
+function preyFor(c) {
+  let prey = state.player, best = dist(c, prey) + (prey.hp > 0 ? 0 : 1e9);
+  for (const r of remotes.values()) { const d = dist(c, r); if (r.hp > 0 && d < best && d < 80) { prey = r; best = d; } }
+  return prey;
+}
+const r2 = v => Math.round(v * 100) / 100;
+function reportCreatures(dt) {
+  if (!net.online || (creatureTimer -= dt) > 0) return;
+  creatureTimer = .1;
+  const list = remotes.size ? creatures.filter(shared).map(c => ({ id: c.id, kind: c.kind, x: r2(c.x), y: r2(c.y), z: r2(c.z), yaw: r2(c.yaw), hp: Math.ceil(c.hp), maxHp: c.maxHp, state: c.state, walk: r2(c.walk), hurt: r2(c.hurt), ...(c.homeX !== undefined ? { hx: c.homeX, hz: c.homeZ } : {}) })) : [];
+  if (list.length || goneIds.length) net.send({ type: 'creatures', list, gone: goneIds });
+  goneIds = [];
+}
+// Stop running the given creatures; online, the server may pass them to someone nearer.
+function dropCreatures(keep) {
+  const kept = [];
+  for (const c of creatures) { if (keep(c)) kept.push(c); else if (shared(c) && net.online && c.hp > 0) goneIds.push(c.id); }
+  creatures = kept;
+}
 
 // ---------- human villages ----------
 const humanVillages = world.pois.filter(o => o.type === 'village');
@@ -242,9 +274,25 @@ function damage(target, amount, opts = {}, fromPlayer = true) {
     return;
   }
   const b = CREATURE[target.kind];
+  if (target.remote) {
+    const bonus = fromPlayer ? 1 + (R.skillLevel(p, 'hunting') - 1) * .02 : 1, poison = fromPlayer && R.poisonsOnHit(p) ? Math.max(opts.poison ?? 0, 4) : opts.poison ?? 0;
+    net.send({ type: 'hit', id: target.id, amount: amount * bonus, poison, slow: opts.slow ?? 0, root: opts.root ?? 0 });
+    target.hurt = 3; // the owner applies the damage; show the flinch now
+    return;
+  }
+  target.lastHitBy = 0;
   if (b.human && target.village !== undefined) { const v = humanVillages.find(o => o.id === target.village); if (v) raiseAlarm(v, `You attacked the people of ${v.name}.`); }
   if (fromPlayer && R.poisonsOnHit(p)) opts = { ...opts, poison: Math.max(opts.poison ?? 0, 4) };
-  if (hurtCreature(target, amount * (fromPlayer ? 1 + (R.skillLevel(p, 'hunting') - 1) * .02 : 1), opts)) slain(target, b);
+  if (hurtCreature(target, amount * (fromPlayer ? 1 + (R.skillLevel(p, 'hunting') - 1) * .02 : 1), opts)) died(target);
+}
+
+// One of our creatures died. Whoever struck last (`lastHitBy`: 0 for us, else a player id) gets the spoils.
+function died(c) {
+  c.hp = 0; c.dead = true;
+  const b = CREATURE[c.kind], by = c.lastHitBy || 0;
+  if (net.online && shared(c)) net.send({ type: 'died', id: c.id, by: by || net.id });
+  if (by) { if (b.elite) state.elites[b.region] = state.clock + ELITE_RESPAWN; return; }
+  slain(c, b);
 }
 
 function slain(c, b) {
@@ -399,24 +447,28 @@ function updatePlayer(dt) {
   if (R.tickSurvival(p, dt, { sprinting: p.sprinting, swimming: g < -1.3, cold })) {
     toast('You have fallen.', true); toast(`You wake at ${p.home.name}.`);
     R.respawn(p); p.y = world.ground(p.x, p.z);
-    creatures = creatures.filter(c => !near(c, p, 80));
+    dropCreatures(c => !near(c, p, 80) || c.remote);
     for (const a of allies) { a.x = p.x + 2; a.z = p.z + 2; a.target = null; }
   }
 }
 
-function bite(dmg, c) {
-  const p = state.player, b = CREATURE[c.kind];
-  R.damagePlayer(p, dmg, { poison: b.poison });
+function bite(dmg, c, prey = state.player) {
+  const b = CREATURE[c.kind];
+  if (prey !== state.player) { net.send({ type: 'bite', to: prey.id, damage: dmg, poison: !!b.poison, kind: c.kind }); return; }
+  R.damagePlayer(state.player, dmg, { poison: b.poison });
   hurtFlash = .3;
 }
 
 function updateCreatures(dt) {
   const p = state.player, night = isNight(), w = wards();
   for (const c of creatures) {
-    updateCreature(c, p, world.ground, dt, night, bite, w);
-    if (c.hp <= 0 && !c.dead) { c.dead = true; slain(c, CREATURE[c.kind]); }
+    if (c.remote) continue;
+    const prey = preyFor(c);
+    updateCreature(c, prey, world.ground, dt, night, (d, who) => bite(d, who, prey), w);
+    if (c.hp <= 0 && !c.dead) died(c);
   }
-  creatures = creatures.filter(c => c.hp > 0);
+  creatures = creatures.filter(c => c.hp > 0 || (c.remote && !c.dead));
+  reportCreatures(dt);
   allies = allies.filter(a => a.life > 0);
   const hiding = glamoured();
   allies.forEach((a, i) => (hiding && (a.ally === 'witch' || a.ally === 'fox') && near(a, p, 200)) || updateAlly(a, p, hostiles(), world.ground, dt, (target, dmg) => {
@@ -427,20 +479,21 @@ function updateCreatures(dt) {
   spawnTimer -= dt;
   if (spawnTimer > 0) return;
   spawnTimer = 1;
-  creatures = creatures.filter(c => c.village !== undefined || near(c, p, CREATURE[c.kind].elite ? 500 : 360));
+  dropCreatures(c => c.village !== undefined || c.remote || near(c, p, CREATURE[c.kind].elite ? 500 : 360));
   for (const lair of world.pois.filter(o => o.type === 'lair' && near(o, p, 220))) {
     const elite = BESTIARY.find(b => b.elite && b.region === lair.region);
     if ((state.elites[lair.region] ?? 0) <= state.clock && !creatures.some(c => c.kind === elite.id)) {
-      creatures.push(makeCreature(elite.id, lair.x, lair.z, { homeX: lair.x, homeZ: lair.z }));
+      creatures.push(newCreature(elite.id, lair.x, lair.z, { homeX: lair.x, homeZ: lair.z }));
       toast(`You sense ${elite.name} nearby…`);
     }
   }
-  if (creatures.filter(c => c.village === undefined).length >= MAX_CREATURES) return;
+  // The cap counts everyone's creatures around us, so a group of players doesn't flood the area.
+  if (creatures.filter(c => c.village === undefined && near(c, p, 360)).length >= MAX_CREATURES) return;
   const a = Math.random() * Math.PI * 2, r = 90 + Math.random() * 140, x = p.x + Math.cos(a) * r, z = p.z + Math.sin(a) * r;
   if (Math.abs(x) > HALF - 50 || Math.abs(z) > HALF - 50 || world.ground(x, z) < 1 || w.some(t => Math.hypot(t.x - x, t.z - z) < 40)) return;
   if (world.pois.some(o => (o.type === 'hearth' || o.type === 'village') && Math.hypot(o.x - x, o.z - z) < 80)) return;
   const kind = pickCreature(world.region(x, z), world.danger(x, z), night);
-  if (kind) creatures.push(makeCreature(kind, x, z));
+  if (kind) creatures.push(newCreature(kind, x, z));
 }
 
 function updateBoss(dt) {
@@ -461,10 +514,12 @@ function updateBoss(dt) {
   boss.slam -= dt; boss.cast -= dt; boss.summon -= dt;
   if (boss.slam <= 0 && d < 8) { boss.slam = 3.5; view.ring(boss.x, boss.y, boss.z, 8, '#ff3c6e'); R.damagePlayer(p, BOSS.damage); hurtFlash = .4; }
   if (boss.cast <= 0 && d < 45 && p.hp > 0) { boss.cast = 3; projectiles.push({ id: nextId++, x: boss.x, y: boss.y + 6, z: boss.z, target: 'player', amount: 18, color: '#ff3c6e', opts: {}, fromPlayer: false }); }
+  // Online, only the lowest-numbered player at the Crown raises thralls, so they are not doubled.
+  if (boss.summon <= 0 && net.online && [...remotes.values()].some(r => r.id < net.id && Math.hypot(r.x - CROWN.x, r.z - CROWN.z) < 160)) boss.summon = 22;
   if (boss.summon <= 0) {
     boss.summon = 22;
     const pool = BESTIARY.filter(b => !b.elite && b.level >= 6 && !b.fly);
-    for (let i = 0; i < 2; i++) { const b = pool[Math.floor(Math.random() * pool.length)], a = Math.random() * 6.28; creatures.push(Object.assign(makeCreature(b.id, boss.x + Math.cos(a) * 10, boss.z + Math.sin(a) * 10), { state: 'chase', angry: true })); }
+    for (let i = 0; i < 2; i++) { const b = pool[Math.floor(Math.random() * pool.length)], a = Math.random() * 6.28; creatures.push(Object.assign(newCreature(b.id, boss.x + Math.cos(a) * 10, boss.z + Math.sin(a) * 10), { state: 'chase', angry: true })); }
     toast('The Unwitch calls her thralls!');
   }
 }
@@ -692,6 +747,8 @@ function chatLine(name, text) {
 net.on('welcome', m => {
   net.world = m.world; net.id = m.id;
   remotes.clear(); villages.clear();
+  // Wild creatures from before joining have offline ids; let them go and spawn afresh with shared ids.
+  creatures = creatures.filter(c => c.village !== undefined); creatureSeq = 0; goneIds = [];
   m.players.forEach(addRemote); m.villages.forEach(remoteVillage);
   for (const [node, seconds] of m.harvested) hideShared(node, seconds);
   setBoss(m.boss);
@@ -707,7 +764,41 @@ net.on('snap', m => {
     Object.assign(r, { ...o, x: r.x, y: r.y, z: r.z, tx: o.x, ty: o.y, tz: o.z });
     if (Math.hypot(r.tx - r.x, r.tz - r.z) > 50) Object.assign(r, { x: o.x, y: o.y, z: o.z });
   }
+  // Creatures other players run: add, update targets for smoothing, and drop any no longer reported.
+  const seen = new Set(), mine = new Map(creatures.filter(c => c.remote).map(c => [c.id, c]));
+  for (const o of m.creatures ?? []) {
+    if (!CREATURE[o.kind]) continue;
+    seen.add(o.id);
+    const c = mine.get(o.id);
+    if (!c) { creatures.push({ ...o, remote: true, tx: o.x, ty: o.y, tz: o.z, poison: 0, slow: 0, root: 0 }); continue; }
+    Object.assign(c, { hp: o.hp, maxHp: o.maxHp, state: o.state, walk: o.walk, yaw: o.yaw, hurt: Math.max(c.hurt ?? 0, o.hurt), tx: o.x, ty: o.y, tz: o.z });
+    if (Math.hypot(c.tx - c.x, c.tz - c.z) > 40) Object.assign(c, { x: o.x, y: o.y, z: o.z });
+  }
+  creatures = creatures.filter(c => !c.remote || seen.has(c.id));
 });
+// The server hands us a creature whose owner left or walked away: we run it from now on.
+net.on('adopt', ({ creature: o }) => {
+  if (!CREATURE[o.kind]) return;
+  creatures = creatures.filter(c => c.id !== o.id);
+  creatures.push(Object.assign(makeCreature(o.kind, o.x, o.z, o.hx !== undefined ? { homeX: o.hx, homeZ: o.hz } : {}), { id: o.id, y: o.y, yaw: o.yaw, hp: o.hp, maxHp: o.maxHp, state: o.state, walk: o.walk }));
+});
+// Another player struck one of our creatures.
+net.on('hit', m => {
+  const c = creatures.find(o => o.id === m.id && !o.remote && o.hp > 0);
+  if (!c) return;
+  c.lastHitBy = m.from;
+  if (hurtCreature(c, m.amount, { poison: m.poison, slow: m.slow, root: m.root })) died(c);
+});
+// A creature someone else ran has died; if our blow felled it, the spoils are ours.
+net.on('died', m => {
+  const c = creatures.find(o => o.id === m.id);
+  creatures = creatures.filter(o => o.id !== m.id);
+  const b = CREATURE[m.kind];
+  if (!b) return;
+  if (m.by === net.id) slain(c ?? { kind: m.kind }, b);
+  else if (b.elite) state.elites[b.region] = state.clock + ELITE_RESPAWN;
+});
+net.on('bite', m => { R.damagePlayer(state.player, m.damage, { poison: m.poison }); hurtFlash = .3; });
 net.on('harvest', m => hideShared(m.node, m.seconds));
 net.on('village', remoteVillage);
 net.on('boss', m => { const was = serverBoss?.warded; setBoss(m.boss); if (boss && was && !m.boss.warded) toast('A coven-sister\'s Grand Rite shatters the ward! Strike now!', true); });
@@ -724,7 +815,7 @@ net.on('chat', m => chatLine(m.name, m.text));
 net.on('error', m => toast(m.text));
 net.on('status', (status) => {
   if (status === 'reconnecting') chatLine('', 'Lost the server. Reconnecting…');
-  if (status !== 'online') { remotes.clear(); villages.clear(); buildingsChanged(); }
+  if (status !== 'online') { remotes.clear(); villages.clear(); buildingsChanged(); creatures = creatures.filter(c => !c.remote); }
 });
 
 function openChat() {
@@ -800,7 +891,7 @@ canvas.addEventListener('mousedown', e => {
 const saved = loadState();
 if (saved) { begin(saved); $('#play').innerHTML = 'CONTINUE <span>→</span>'; $('#newGame').classList.remove('hidden'); }
 else begin(freshState('wild'));
-window.__coven = { net, get remotes() { return remotes; }, get villages() { return villages; }, get state() { return state; }, world, view, get creatures() { return creatures; }, get allies() { return allies; }, get boss() { return boss; }, cast, placeBuilding, get mode() { return mode; }, spawn: (kind, x, z) => creatures.push(makeCreature(kind, x, z)), hit: (c, n) => damage(c, n), humanVillages, villageState, interact: () => interaction()?.act() };
+window.__coven = { net, get remotes() { return remotes; }, get villages() { return villages; }, get state() { return state; }, world, view, get creatures() { return creatures; }, get allies() { return allies; }, get boss() { return boss; }, cast, placeBuilding, get mode() { return mode; }, spawn: (kind, x, z) => creatures.push(newCreature(kind, x, z)), hit: (c, n) => damage(c, n), humanVillages, villageState, interact: () => interaction()?.act() };
 // Without a save, the menu shows the world behind it but play starts at class selection.
 if (!saved) state = null;
 const preview = freshState('wild');
@@ -828,7 +919,9 @@ function frame(now) {
   if (!state) yaw += dt * .05;
   view.stream(p.x, p.z, mode === 'playing' ? 1 : 4);
   if (state) {
-    for (const r of remotes.values()) { const k = Math.min(1, dt * 10); r.x += (r.tx - r.x) * k; r.z += (r.tz - r.z) * k; r.y += (r.ty - r.y) * k; if (r.moving) r.walk += dt * 6; }
+    const k = Math.min(1, dt * 10);
+    for (const r of remotes.values()) { r.x += (r.tx - r.x) * k; r.z += (r.tz - r.z) * k; r.y += (r.ty - r.y) * k; if (r.moving) r.walk += dt * 6; }
+    for (const c of creatures) if (c.remote) { c.x += (c.tx - c.x) * k; c.z += (c.tz - c.z) * k; c.y += (c.ty - c.y) * k; c.hurt = Math.max(0, c.hurt - dt); }
     const built = allBuildings(), lights = lightSources();
     view.syncRemotes([...remotes.values()], now / 1000);
     view.syncWorld({ creatures, allies, boss, buildings: built, projectiles, elders: elders(), now: now / 1000 });

@@ -2,8 +2,15 @@
 // and owns the state everyone must agree on: depleted resource nodes, villages and the Unwitch.
 // Pure logic: the transport passes in a `send` function per client, which makes this testable without sockets.
 // Messages are handed to `send` already encoded as JSON, so a broadcast is encoded once, not once per player.
+//
+// Creatures are owned by the client that spawned them: the owner runs their AI and reports their state; the hub
+// relays them to players within range, routes hits to the owner and bites to the bitten, announces deaths, and
+// hands a creature to the nearest other player when its owner leaves or walks away from it.
+import { CREATURE } from '../Browser/bestiary.mjs';
 
 export const LIMITS = { players: 32, name: 20, coven: 20, world: 16, chat: 200, buildings: 200 };
+// Creature ids are owner id × ID_SPAN + a local count, so a client can only create ids in its own range.
+export const CREATURE_RANGE = 500, ADOPT_RANGE = 250, MAX_OWNED = 64, ID_SPAN = 1e6;
 export const BOSS_HP = 6000, BOSS_RESPAWN_MS = 10 * 60 * 1000, BOSS_IDLE_RESET_MS = 60 * 1000, CROWN_RANGE = 400;
 const BUILDING_TYPES = new Set(['heart', 'campfire', 'cauldron', 'palisade', 'lantern', 'hut', 'well', 'garden', 'totem', 'altar']);
 const CLASSES = new Set(['bog', 'hex', 'bloom', 'wild']);
@@ -17,11 +24,22 @@ export function createHub({ now = Date.now } = {}) {
   let nextId = 1;
 
   function getWorld(code) {
-    if (!worlds.has(code)) worlds.set(code, { code, players: new Map(), harvested: new Map(), villages: new Map(), boss: { hp: BOSS_HP, wardUntil: 0, downUntil: 0, lastNear: 0 } });
+    if (!worlds.has(code)) worlds.set(code, { code, players: new Map(), harvested: new Map(), villages: new Map(), creatures: new Map(), boss: { hp: BOSS_HP, wardUntil: 0, downUntil: 0, lastNear: 0 } });
     return worlds.get(code);
   }
   const publicPlayer = p => ({ id: p.id, name: p.name, coven: p.coven, cls: p.cls, level: p.level, x: p.x, y: p.y, z: p.z, yaw: p.yaw, hp: p.hp, maxHp: p.maxHp, moving: p.moving, swing: p.swing });
   const bossState = b => ({ hp: b.hp, max: BOSS_HP, warded: now() >= b.wardUntil, wardLeft: Math.max(0, (b.wardUntil - now()) / 1000), down: now() < b.downUntil });
+  const publicCreature = c => ({ id: c.id, kind: c.kind, x: c.x, y: c.y, z: c.z, yaw: c.yaw, hp: c.hp, maxHp: c.maxHp, state: c.state, walk: c.walk, hurt: c.hurt, ...(c.hx !== undefined ? { hx: c.hx, hz: c.hz } : {}) });
+  const dist = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
+
+  // The owner no longer runs this creature: give it to the nearest other player in range, or let it go.
+  function release(world, c) {
+    let heir = null;
+    for (const p of world.players.values()) if (p.id !== c.owner && dist(p, c) < ADOPT_RANGE && (!heir || dist(p, c) < dist(heir, c))) heir = p;
+    if (!heir) { world.creatures.delete(c.id); return; }
+    c.owner = heir.id;
+    heir.send(JSON.stringify({ type: 'adopt', creature: publicCreature(c) }));
+  }
   const broadcast = (world, msg, except) => { const data = JSON.stringify(msg); for (const p of world.players.values()) if (p !== except) p.send(data); };
 
   function connect(transport) {
@@ -86,6 +104,36 @@ export function createHub({ now = Date.now } = {}) {
         client.world.harvested.set(node, now() + seconds * 1000);
         broadcast(client.world, { type: 'harvest', node, seconds }, client);
       },
+      // The owner's report: its creatures' current state, and any it stopped running.
+      creatures(m) {
+        const world = client.world;
+        if (Array.isArray(m.list)) for (const e of m.list.slice(0, MAX_OWNED)) {
+          const id = num(e?.id, 0, Number.MAX_SAFE_INTEGER, -1), known = world.creatures.get(id);
+          if (!CREATURE[e.kind] || (known ? known.owner !== client.id : Math.floor(id / ID_SPAN) !== client.id)) continue;
+          world.creatures.set(id, {
+            id, owner: client.id, kind: e.kind, x: num(e.x, -6000, 6000), y: num(e.y, -100, 1000), z: num(e.z, -6000, 6000), yaw: num(e.yaw, -1e4, 1e4),
+            hp: num(e.hp, -1e5, 1e5), maxHp: num(e.maxHp, 1, 1e5, 1), state: ['wander', 'chase', 'flee'].includes(e.state) ? e.state : 'wander', walk: num(e.walk, 0, 1e7), hurt: num(e.hurt, 0, 5),
+            ...(e.hx !== undefined ? { hx: num(e.hx, -6000, 6000), hz: num(e.hz, -6000, 6000) } : {}),
+          });
+        }
+        if (Array.isArray(m.gone)) for (const id of m.gone.slice(0, MAX_OWNED)) { const c = world.creatures.get(id); if (c?.owner === client.id) release(world, c); }
+      },
+      // A hit on someone else's creature goes to its owner, who applies it.
+      hit(m) {
+        const c = client.world.creatures.get(m.id), owner = c && client.world.players.get(c.owner);
+        if (!owner || owner === client) return;
+        owner.send(JSON.stringify({ type: 'hit', id: c.id, amount: num(m.amount, 0, 5000), poison: num(m.poison, 0, 50), slow: num(m.slow, 0, 30), root: num(m.root, 0, 30), from: client.id }));
+      },
+      bite(m) {
+        const target = client.world.players.get(m.to);
+        if (target && target !== client) target.send(JSON.stringify({ type: 'bite', damage: num(m.damage, 0, 500), poison: !!m.poison, kind: CREATURE[m.kind] ? m.kind : '' }));
+      },
+      died(m) {
+        const c = client.world.creatures.get(m.id);
+        if (!c || c.owner !== client.id) return;
+        client.world.creatures.delete(c.id);
+        broadcast(client.world, { type: 'died', id: c.id, kind: c.kind, by: num(m.by, 0, Number.MAX_SAFE_INTEGER) }, client);
+      },
       ward(m) {
         const b = client.world.boss;
         if (now() < b.downUntil) return;
@@ -114,6 +162,7 @@ export function createHub({ now = Date.now } = {}) {
         const world = client.world;
         if (!world) return;
         world.players.delete(client.id);
+        for (const c of [...world.creatures.values()]) if (c.owner === client.id) release(world, c);
         broadcast(world, { type: 'leave', id: client.id });
         if (!world.players.size) worlds.delete(world.code);
       },
@@ -128,9 +177,13 @@ export function createHub({ now = Date.now } = {}) {
       if (b.downUntil && t >= b.downUntil) { Object.assign(b, { hp: BOSS_HP, downUntil: 0, wardUntil: 0 }); broadcast(world, { type: 'boss', boss: bossState(b) }); }
       if (b.hp < BOSS_HP && !b.downUntil && t - b.lastNear > BOSS_IDLE_RESET_MS) { b.hp = BOSS_HP; b.wardUntil = 0; broadcast(world, { type: 'boss', boss: bossState(b) }); }
       if (world.players.size < 2) continue;
-      // One snapshot for everyone (each client skips itself), encoded once.
-      const data = JSON.stringify({ type: 'snap', players: [...world.players.values()].map(publicPlayer) });
-      for (const p of world.players.values()) p.send(data);
+      // Players are the same for everyone (each client skips itself) and encoded once; each player also gets
+      // the creatures within range that someone else runs.
+      const players = JSON.stringify([...world.players.values()].map(publicPlayer)), creatures = [...world.creatures.values()];
+      for (const p of world.players.values()) {
+        const near = creatures.filter(c => c.owner !== p.id && dist(c, p) < CREATURE_RANGE).map(publicCreature);
+        p.send(`{"type":"snap","players":${players},"creatures":${JSON.stringify(near)}}`);
+      }
     }
   }
 

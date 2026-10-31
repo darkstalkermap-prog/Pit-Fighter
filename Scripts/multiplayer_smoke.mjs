@@ -50,8 +50,29 @@ try{
  await b.evaluate(()=>{__coven.state.player.yaw+=Math.PI;});await b.waitForTimeout(500);
  await b.screenshot({path:new URL('../test-results/multiplayer.png',import.meta.url).pathname});
 
- await b.close();
- await a.waitForFunction(()=>__coven.remotes.size===0);
+ // Shared creatures: a wolf Agnes spawns appears for Bryony, and Bryony's killing blow earns her the spoils.
+ await a.evaluate(()=>{for(const c of __coven.creatures)if(c.village===undefined){c.dead=true;c.hp=0;}});
+ await b.evaluate(()=>{for(const c of __coven.creatures)if(c.village===undefined){c.dead=true;c.hp=0;}const p=__coven.state.player;p.hp=p.maxHp=9999;});
+ await a.evaluate(()=>{const p=__coven.state.player;p.hp=p.maxHp=9999;__coven.spawn('wolf',p.x,p.z+60);});
+ await b.waitForFunction(()=>__coven.creatures.some(c=>c.remote&&c.kind==='wolf'));
+ const kills=await b.evaluate(()=>__coven.state.player.stats.kills),aKills=await a.evaluate(()=>__coven.state.player.stats.kills);
+ await b.evaluate(()=>{const c=__coven.creatures.find(c=>c.remote&&c.kind==='wolf');__coven.hit(c,9999);});
+ await b.waitForFunction(k=>__coven.state.player.stats.kills===k+1,kills);
+ await a.waitForFunction(()=>!__coven.creatures.some(c=>c.kind==='wolf'));
+ assert.equal(await a.evaluate(()=>__coven.state.player.stats.kills),aKills,'The owner does not get the kill');
+ assert.ok(await b.evaluate(()=>__coven.state.player.inv.hide>=2),'The killer gets the loot');
+
+ // A creature Agnes runs hunts whoever is nearest, and its bites land on Bryony.
+ const bHp=await b.evaluate(()=>__coven.state.player.hp);
+ await a.evaluate(()=>{const r=[...__coven.remotes.values()][0];__coven.spawn('wolf',r.x+1.5,r.z);});
+ await b.waitForFunction(h=>__coven.state.player.hp<h,bHp);
+ assert.equal(await a.evaluate(()=>__coven.state.player.hp),await a.evaluate(()=>__coven.state.player.maxHp),'Agnes is not bitten');
+
+ // When Agnes leaves, Bryony takes over the creatures near her.
+ const owned=await a.evaluate(()=>__coven.creatures.filter(c=>c.village===undefined&&!c.remote&&c.hp>0).map(c=>c.id));
+ await a.close();
+ await b.waitForFunction(()=>__coven.remotes.size===0);
+ await b.waitForFunction(ids=>ids.some(id=>__coven.creatures.some(c=>c.id===id&&!c.remote)),owned);
  assert.deepEqual(errors,[],'No browser errors');
- console.log('PASS: two browsers share a world: presence, real coven count, coven rite, shared harvesting, shared villages, chat, leave.');
+ console.log('PASS: two browsers share a world: presence, real coven count, coven rite, shared harvesting, shared villages, chat, shared creatures with kill credit, cross-player bites, creature handover on leave.');
 }finally{await browser?.close();server.kill();}

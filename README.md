@@ -35,7 +35,7 @@ Tick **Play online with others** on the title screen, pick a name, and optionall
 - Trees, rocks and herbs someone depletes disappear for everyone until they regrow.
 - Everyone's village buildings are visible (and solid) to all.
 - The Unwitch is shared: her health, a broken ward and the final blow count for everyone at the Crown.
-- Wildlife is still spawned separately for each player.
+- Wildlife is shared: everyone sees the same creatures, they hunt whichever player is nearest, and the player who lands the killing blow gets the loot and experience. Each creature is run by the player who spawned it; if that player leaves or walks away, the nearest other player takes it over.
 
 Worlds are named rooms (default `isle`), up to 32 players each. A world's shared state lasts while someone is in it; your own progress always saves in your browser.
 
@@ -108,7 +108,7 @@ A fifteen-step quest line guides the way from first gathering to the Grand Rite.
 
 ## Current limits
 
-This is a prototype. Wildlife is not synchronised between players, and players cannot damage each other. Human villages and their alarms are also local to each player. Graphics are placeholder-level. Balance numbers are first guesses.
+This is a prototype. Players cannot damage each other, and human villages, their people and alarms are local to each player. Graphics are placeholder-level. Balance numbers are first guesses.
 
 ## Development
 
@@ -133,7 +133,7 @@ npm start
 | `Browser/view.mjs` | Three.js rendering |
 | `Browser/game.mjs` | Game loop, input, HUD and panels |
 | `Browser/net.mjs` | WebSocket client |
-| `server/hub.mjs` | Shared-world rules: players, harvests, villages, the Unwitch, chat |
+| `server/hub.mjs` | Shared-world rules: players, creatures, harvests, villages, the Unwitch, chat |
 | `server/server.mjs` | HTTP and WebSocket server |
 
 ### Performance
@@ -150,4 +150,4 @@ npm run build
 npm run test:browser
 ```
 
-Set `CHROMIUM_PATH` to use an installed Chromium. The test serves the game at the Pages subpath, picks a class, walks, builds a village, brews at the cauldron, checks coven-spell gating, hunts a wolf with spells, opens the map, and breaks the Unwitch's ward with a four-witch Grand Rite. A second test starts the real server with two browsers and checks presence, a real two-player coven rite, shared harvesting, shared villages, chat and leaving. Both fail on any browser error. Screenshots go to `test-results/`.
+Set `CHROMIUM_PATH` to use an installed Chromium. The test serves the game at the Pages subpath, picks a class, walks, builds a village, brews at the cauldron, checks coven-spell gating, hunts a wolf with spells, opens the map, and breaks the Unwitch's ward with a four-witch Grand Rite. A second test starts the real server with two browsers and checks presence, a real two-player coven rite, shared harvesting, shared villages, chat, shared creatures (kill credit, bites across players, handover when a player leaves) and leaving. Both fail on any browser error. Screenshots go to `test-results/`.
