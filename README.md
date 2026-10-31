@@ -30,7 +30,15 @@ Use a desktop browser with a keyboard and mouse. Progress saves in the browser's
 
 ## Multiplayer
 
-Tick **Play online with others** on the title screen, pick a name, and optionally a **coven name** and a **world**. Everyone in the same world shares the isle:
+Tick **Play online with others** on the title screen, pick a name and optionally a **coven name**, then choose how to connect:
+
+- **Host a game**: your browser runs the world. Once you enter the isle you get a four-letter **game code** (also shown top-left) to give your friends. Keep the tab open: if you close it, the game ends for everyone. Up to eight players.
+- **Join with a code**: enter the host's code.
+- **Server**: connect to a Coven server (see below) and pick a **world** name; for larger or always-on games.
+
+Hosted games need no server of your own: browsers connect directly (WebRTC, via [PeerJS](https://peerjs.com/)), and PeerJS's free public service only introduces them by code. A few strict networks block direct connections; use a server there.
+
+Everyone in the same game shares the isle:
 
 - You see each other's witches (class colours, name and coven overhead) and can chat with **Enter**.
 - Players who enter the **same coven name** form a real coven: each one within 25 m counts toward coven rites, alongside any AI sisters. Four real players can cast the Grand Rite together.
@@ -39,7 +47,7 @@ Tick **Play online with others** on the title screen, pick a name, and optionall
 - The Unwitch is shared: her health, a broken ward and the final blow count for everyone at the Crown.
 - Wildlife is shared: everyone sees the same creatures, they hunt whichever player is nearest, and the player who lands the killing blow gets the loot and experience. Each creature is run by the player who spawned it; if that player leaves or walks away, the nearest other player takes it over.
 
-Worlds are named rooms (default `isle`), up to 32 players each. A world's shared state lasts while someone is in it; your own progress always saves in your browser.
+On a server, worlds are named rooms (default `isle`), up to 32 players each. A game's shared state lasts while someone is in it (or, when hosted, while the host stays); your own progress always saves in your browser.
 
 ### Running a server
 
@@ -148,7 +156,8 @@ npm start
 | `Browser/creatures.mjs` | Creature and ally behaviour |
 | `Browser/view.mjs` | Three.js rendering |
 | `Browser/game.mjs` | Game loop, input, HUD and panels |
-| `Browser/net.mjs` | WebSocket client |
+| `Browser/net.mjs` | Connection to a shared world: server WebSocket, or a hosted game |
+| `Browser/peer.mjs` | Player-hosted games over WebRTC: host (runs `server/hub.mjs` in the browser) and join by code |
 | `server/hub.mjs` | Shared-world rules: players, creatures, harvests, villages, the Unwitch, chat |
 | `server/server.mjs` | HTTP and WebSocket server |
 
@@ -166,4 +175,4 @@ npm run build
 npm run test:browser
 ```
 
-Set `CHROMIUM_PATH` to use an installed Chromium. The test serves the game at the Pages subpath, picks a class, walks, builds a village, brews at the cauldron, checks coven-spell gating, hunts a wolf with spells, opens the map, and breaks the Unwitch's ward with a four-witch Grand Rite. A second test starts the real server with two browsers and checks presence, a real two-player coven rite, shared harvesting, shared villages, chat, shared creatures (kill credit, bites across players, handover when a player leaves) and leaving. Both fail on any browser error. Screenshots go to `test-results/`.
+Set `CHROMIUM_PATH` to use an installed Chromium. The test serves the game at the Pages subpath, picks a class, walks, builds a village, brews at the cauldron, checks coven-spell gating, hunts a wolf with spells, opens the map, and breaks the Unwitch's ward with a four-witch Grand Rite. A third test runs a player-hosted game through a local PeerJS broker: a host gets a code, a guest joins with it, they share the world, a wrong code is reported and the host leaving is handled. A second test starts the real server with two browsers and checks presence, a real two-player coven rite, shared harvesting, shared villages, chat, shared creatures (kill credit, bites across players, handover when a player leaves) and leaving. Both fail on any browser error. Screenshots go to `test-results/`.

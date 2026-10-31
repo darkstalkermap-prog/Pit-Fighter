@@ -8,15 +8,17 @@
     "build": "node Scripts/build_browser.mjs",
     "server": "node server/server.mjs",
     "start": "npm run build && node server/server.mjs",
-    "test:browser": "node Scripts/browser_smoke.mjs && node Scripts/multiplayer_smoke.mjs",
+    "test:browser": "node Scripts/browser_smoke.mjs && node Scripts/multiplayer_smoke.mjs && node Scripts/peer_smoke.mjs",
     "profile": "NO_MINIFY=1 node Scripts/build_browser.mjs && node Scripts/profile.mjs"
   },
   "dependencies": {
+    "peerjs": "1.5.4",
     "three": "0.180.0",
     "ws": "8.18.3"
   },
   "devDependencies": {
     "esbuild": "0.25.12",
+    "peer": "1.0.2",
     "playwright": "1.56.1"
   },
   "engines": {

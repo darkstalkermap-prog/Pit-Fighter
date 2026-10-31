@@ -80,7 +80,7 @@ footer{position:absolute;bottom:0;left:0;right:0;padding:12px 24px;display:flex;
 #mp{margin:0 0 18px;font:12px Arial,sans-serif;color:#cbbfdc}.check{display:flex;gap:8px;align-items:center;cursor:pointer}
 #mpFields{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px;max-width:420px}
 #mpFields label{display:flex;flex-direction:column;gap:3px;font-size:10px;letter-spacing:1px;color:var(--dim)}
-#mpFields label:last-child{grid-column:1/-1}
+#mpFields .wide,#mpFields .modes,#mpFields .m-host{grid-column:1/-1}
 #mpFields input{padding:7px;background:#1d1628;color:var(--ink);border:1px solid #ffffff2b;font:12px Arial,sans-serif}
 
 #hurt{position:absolute;inset:0;pointer-events:none;background:radial-gradient(ellipse at center,transparent 45%,#b0101099);opacity:0;transition:opacity .25s}#hurt.on{opacity:1;transition:none}
@@ -92,3 +92,7 @@ footer{position:absolute;bottom:0;left:0;right:0;padding:12px 24px;display:flex;
 .slot.empty{border-style:dashed;border-color:#ffffff22;opacity:.7}.slot small{font:9px Arial,sans-serif;letter-spacing:2px;color:var(--gold)}
 .slot b{font-size:13px;font-weight:normal}.slot em{font:10px Arial,sans-serif;color:var(--dim);font-style:normal}.slot button{margin-top:auto;padding:4px 6px;font-size:10px}
 @media(max-width:760px){.slots{grid-template-columns:repeat(2,1fr)}}
+
+.modes{display:flex;flex-wrap:wrap;gap:6px 14px}.modes label{flex-direction:row!important;align-items:center;gap:6px!important;font-size:12px!important;letter-spacing:0!important;color:#cbbfdc!important;cursor:pointer}
+#mpFields:not([data-mode="join"]) .m-join,#mpFields:not([data-mode="server"]) .m-server,#mpFields:not([data-mode="host"]) .m-host{display:none}
+#mp-code{text-transform:uppercase;letter-spacing:4px;font-size:16px!important}

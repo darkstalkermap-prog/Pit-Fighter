@@ -45,10 +45,13 @@
  <label class="gfx">Graphics <select id="gfx"><option value="auto">Auto (adapts to your computer)</option><option value="high">High</option><option value="low">Low (older computers)</option></select></label>
  <div id="mp"><label class="check"><input type="checkbox" id="mp-enabled"> Play online with others</label>
   <div id="mpFields" class="hidden">
+   <div class="modes"><label><input type="radio" name="mp-mode" value="host"> Host a game</label><label><input type="radio" name="mp-mode" value="join"> Join with a code</label><label><input type="radio" name="mp-mode" value="server"> Server</label></div>
    <label>Your name<input id="mp-name" maxlength="20" placeholder="Witch name" autocomplete="off"></label>
    <label>Coven name<input id="mp-coven" maxlength="20" placeholder="Same name = same coven" autocomplete="off"></label>
-   <label>World<input id="mp-world" maxlength="16" placeholder="isle" autocomplete="off"></label>
-   <label>Server<input id="mp-server" placeholder="https://your-coven-server.onrender.com" autocomplete="off"></label>
+   <label class="m-join">Game code<input id="mp-code" maxlength="4" placeholder="ABCD" autocomplete="off"></label>
+   <label class="m-server">World<input id="mp-world" maxlength="16" placeholder="isle" autocomplete="off"></label>
+   <label class="m-server wide">Server<input id="mp-server" placeholder="https://your-coven-server.onrender.com" autocomplete="off"></label>
+   <p class="m-host hint">You'll get a four-letter code to share once you enter the isle. Your browser runs the game for everyone, so keep this tab open.</p>
   </div></div>
  <button id="play">BEGIN <span>→</span></button>
  <button id="newGame" class="ghost hidden">START A NEW LIFE</button>

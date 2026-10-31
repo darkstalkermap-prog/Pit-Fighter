@@ -652,7 +652,8 @@ function hud() {
     const s = SPELLS[id], blocker = R.castBlocker(p, id, covenHere), cd = p.cooldowns[id];
     return `<div class="spell${blocker ? ' locked' : ''}" title="${s.name}${blocker ? ': ' + blocker : ''}" style="--c:${s.color}"><kbd>${i + 1}</kbd><b>${s.name}</b><small>${s.coven > 1 ? `${s.coven} witches` : `${s.mana} mana`}</small>${cd ? `<i style="height:${Math.round(cd / s.cooldown * 20) * 5}%"></i>` : ''}</div>`;
   }).join(''));
-  put('#netStatus', 'textContent', net.status === 'online' ? `ONLINE · ${net.world ?? online.world} · ${remotes.size} other${remotes.size === 1 ? '' : 's'}${online.coven ? ` · coven ‹${online.coven}›` : ''}` : net.status === 'offline' ? '' : net.status.toUpperCase() + '…');
+  const where = net.mode === 'host' ? `HOSTING · CODE ${net.code}` : net.mode === 'join' ? `GAME ${net.code}` : `ONLINE · ${net.world ?? online.world}`;
+  put('#netStatus', 'textContent', net.status === 'online' ? `${where} · ${remotes.size} other${remotes.size === 1 ? '' : 's'}${online.coven ? ` · coven ‹${online.coven}›` : ''}` : net.status === 'offline' ? '' : net.status.toUpperCase() + '…');
   const bossShown = !!boss && near(boss, p, 120);
   put('#boss', 'className', bossShown ? '' : 'hidden');
   if (bossShown) { put('#bossHp', 'width', `${Math.round(boss.hp / BOSS.hp * 1000) / 10}%`); put('#bossWard', 'textContent', boss.warded ? 'WARDED: cast the Grand Rite [7]' : `WARD BROKEN · ${Math.ceil(boss.wardTimer)}s`); }
@@ -767,11 +768,16 @@ function loadOnline() {
   let o = {};
   try { o = JSON.parse(localStorage.getItem(ONLINE_KEY)) ?? {}; } catch { /* defaults */ }
   if (!o.key) o.key = Math.random().toString(36).slice(2) + Date.now().toString(36);
-  return { enabled: !!o.enabled, name: o.name ?? '', coven: o.coven ?? '', world: o.world ?? 'isle', server: o.server || defaultServer(), key: o.key };
+  // Host or join by code by default; a page served by a Coven server defaults to that server.
+  const mode = ['host', 'join', 'server'].includes(o.mode) ? o.mode : defaultServer() ? 'server' : 'host';
+  return { enabled: !!o.enabled, mode, code: o.code ?? '', name: o.name ?? '', coven: o.coven ?? '', world: o.world ?? 'isle', server: o.server || defaultServer(), key: o.key };
 }
 const online = loadOnline();
 function saveOnline() { try { localStorage.setItem(ONLINE_KEY, JSON.stringify(online)); } catch { /* not remembered */ } }
-for (const f of ['name', 'coven', 'world', 'server']) { const el = $(`#mp-${f}`); el.value = online[f]; el.oninput = () => { online[f] = el.value.trim(); saveOnline(); }; }
+for (const f of ['name', 'coven', 'world', 'server', 'code']) { const el = $(`#mp-${f}`); el.value = online[f]; el.oninput = () => { online[f] = f === 'code' ? (el.value = el.value.toUpperCase().replace(/[^A-Z]/g, '')) : el.value.trim(); saveOnline(); }; }
+const showMode = () => { $('#mpFields').dataset.mode = online.mode; for (const r of document.querySelectorAll('[name="mp-mode"]')) r.checked = r.value === online.mode; };
+for (const r of document.querySelectorAll('[name="mp-mode"]')) r.onchange = () => { online.mode = r.value; saveOnline(); showMode(); net.close(); };
+showMode();
 $('#mp-enabled').checked = online.enabled;
 $('#mp-enabled').onchange = () => { online.enabled = $('#mp-enabled').checked; saveOnline(); $('#mpFields').classList.toggle('hidden', !online.enabled); if (!online.enabled) net.close(); };
 $('#mpFields').classList.toggle('hidden', !online.enabled);
@@ -779,12 +785,15 @@ $('#mpFields').classList.toggle('hidden', !online.enabled);
 function sendVillage() { net.send({ type: 'village', list: state.buildings.map(({ id, type, x, y, z, rot }) => ({ id, type, x, y, z, rot })) }); }
 function goOnline() {
   if (!online.enabled || net.wanted) return;
-  if (!online.server) { toast('No multiplayer server set. Enter one in the menu to play online.'); return; }
-  remotes.clear(); villages.clear();
-  net.connect(online.server, () => {
+  const hello = () => {
     const p = state.player;
     return { type: 'hello', world: online.world, name: online.name, coven: online.coven, key: online.key, cls: p.class, level: p.level, buildings: state.buildings.map(({ id, type, x, y, z, rot }) => ({ id, type, x, y, z, rot })) };
-  });
+  };
+  remotes.clear(); villages.clear();
+  if (online.mode === 'host') { net.host(hello); chatLine('', 'Opening your game to others…'); }
+  else if (online.mode === 'join') { if (online.code.length !== 4) { toast('Enter the host\'s four-letter game code in the menu.'); return; } net.join(online.code, hello); chatLine('', `Joining game ${online.code}…`); }
+  else if (!online.server) toast('No multiplayer server set. Enter one in the menu to play online.');
+  else net.connect(online.server, hello);
 }
 const addRemote = r => remotes.set(r.id, { ...r, tx: r.x, ty: r.y, tz: r.z, walk: 0 });
 const remoteVillage = v => { buildingsChanged(); villages.set(v.owner, { name: v.name, list: v.list.map(b => ({ ...b, id: `${v.owner}:${b.id}` })) }); };
@@ -808,7 +817,10 @@ net.on('welcome', m => {
   m.players.forEach(addRemote); m.villages.forEach(remoteVillage);
   for (const [node, seconds] of m.harvested) hideShared(node, seconds);
   setBoss(m.boss);
-  chatLine('', `Joined world “${m.world}”. ${m.players.length ? `${m.players.length} other witch${m.players.length > 1 ? 'es' : ''} here.` : 'You are alone here for now.'} Press Enter to chat.`);
+  if (net.mode === 'host') { chatLine('', `You are hosting. Your game code is ${net.code}: friends choose “Join with a code” and enter it.`); toast(`Game code: ${net.code}`, true); }
+  else if (net.mode === 'join') chatLine('', `Joined ${net.code}.`);
+  else chatLine('', `Joined world “${m.world}”.`);
+  chatLine('', `${m.players.length ? `${m.players.length} other witch${m.players.length > 1 ? 'es' : ''} here.` : 'You are alone here for now.'} Press Enter to chat.`);
 });
 net.on('join', m => { addRemote(m.player); chatLine('', `${m.player.name} has entered the isle.`); });
 net.on('leave', m => { const r = remotes.get(m.id); if (r) chatLine('', `${r.name} has left.`); remotes.delete(m.id); });
@@ -911,6 +923,8 @@ document.querySelectorAll('[data-close]').forEach(b => b.onclick = play);
 addEventListener('resize', () => view.resize());
 addEventListener('blur', () => { if (mode === 'playing') pause(); });
 addEventListener('beforeunload', saveState);
+// A host closing the tab ends the game for everyone at once, rather than leaving guests waiting.
+addEventListener('pagehide', () => { if (net.mode === 'host') net.close(); });
 document.addEventListener('pointerlockchange', () => { if (document.pointerLockElement !== canvas && mode === 'playing') pause(); });
 addEventListener('keydown', e => {
   if (['Space', 'Tab', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.code)) e.preventDefault();
