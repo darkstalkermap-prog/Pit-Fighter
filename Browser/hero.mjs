@@ -70,6 +70,8 @@ function flowerGeo(color) {
   return geo;
 }
 const DOUBLE = THREE.DoubleSide;
+// The head's size against the body: natural proportions, about seven heads tall.
+const HEAD_SCALE = .97;
 // A tube that narrows along its length: `taper(t)` scales the radius at t in 0..1.
 function taperedTube(points, radius, taper, segs = 24, radial = 8) {
   const c = curve(points), geo = new THREE.TubeGeometry(c, segs, radius, radial, false), pos = geo.attributes.position, v = new THREE.Vector3();
@@ -124,39 +126,166 @@ function heroShader(shader) {
     .replace('#include <skinning_vertex>', '#ifdef USE_SKINNING\n\ttransformed = ( skinMatrix * vec4( transformed, 1.0 ) ).xyz;\n#endif');
 }
 
-// Materials are shared by finish (matte, satin or polished metal; one- or two-sided); colour is painted into each
-// part's vertices, so parts of every colour with one finish are drawn together. Glowing parts are unlit, their
-// glow painted in the same way, and see-through parts share one material with their opacity painted in too.
-// Only open shells (skirts, brims, sleeves) are two-sided: the back faces of closed shapes would double the
-// shading. The environment map gives metal its shine.
+// Skin: light wraps past the shadow line and bleeds red there, as it does through real skin (a cheap stand-in for
+// subsurface scattering), on top of the standard physically based lighting.
+const SKIN_CHUNK = THREE.ShaderChunk.lights_physical_pars_fragment.replace(
+  'reflectedLight.directDiffuse += irradiance * BRDF_Lambert( material.diffuseColor );',
+  `float wrapNL = saturate( ( dot( geometryNormal, directLight.direction ) + 0.5 ) / 1.5 );
+	reflectedLight.directDiffuse += directLight.color * BRDF_Lambert( material.diffuseColor ) * ( dotNL + vec3( 0.95, 0.42, 0.3 ) * max( wrapNL - dotNL, 0.0 ) * 1.1 );`);
+function skinShader(shader) {
+  heroShader(shader);
+  shader.fragmentShader = shader.fragmentShader.replace('#include <lights_physical_pars_fragment>', SKIN_CHUNK);
+}
+
+// Fine surface detail made in code (there are no texture assets): skin pores, the weave of cloth and the scratches
+// on worn metal, as tiling normal and roughness maps.
+function detailTextures() {
+  const N = 256, rand = stream(91);
+  const field = fill => { const h = new Float32Array(N * N); for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) h[y * N + x] = fill(x, y); return h; };
+  const noise = (() => { const g = new Float32Array(32 * 32).map(() => rand()); return (x, y, f) => { const u = x / N * f, v = y / N * f, i = Math.floor(u), j = Math.floor(v), a = u - i, b = v - j, w = k => ((k % f) + f) % f;
+    const at = (p, q) => g[(w(q) % 32) * 32 + (w(p) % 32)]; const s = t => t * t * (3 - 2 * t); return (at(i, j) * (1 - s(a)) + at(i + 1, j) * s(a)) * (1 - s(b)) + (at(i, j + 1) * (1 - s(a)) + at(i + 1, j + 1) * s(a)) * s(b); }; })();
+  const normalMap = (h, k) => {
+    const data = new Uint8Array(N * N * 4);
+    for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+      const dx = (h[y * N + (x + N - 1) % N] - h[y * N + (x + 1) % N]) * k, dy = (h[((y + N - 1) % N) * N + x] - h[((y + 1) % N) * N + x]) * k, l = Math.hypot(dx, dy, 1), i = (y * N + x) * 4;
+      data.set([(dx / l * .5 + .5) * 255, (dy / l * .5 + .5) * 255, (1 / l * .5 + .5) * 255, 255], i);
+    }
+    return tex(data);
+  };
+  const greyMap = h => { const data = new Uint8Array(N * N * 4); for (let i = 0; i < N * N; i++) { const v = Math.max(0, Math.min(255, h[i] * 255)); data.set([v, v, v, 255], i * 4); } return tex(data); };
+  const tex = data => { const t = new THREE.DataTexture(data, N, N); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.generateMipmaps = true; t.minFilter = THREE.LinearMipmapLinearFilter; t.magFilter = THREE.LinearFilter; t.anisotropy = 4; t.needsUpdate = true; return t; };
+  // Pores: many small pits over a soft unevenness.
+  const pores = field((x, y) => noise(x, y, 8) * .35 + noise(x, y, 32) * .25 - (rand() < .045 ? .5 : 0));
+  // Weave: threads over and under, with a little fuzz.
+  const weave = field((x, y) => { const u = x / N * 64 * Math.PI, v = y / N * 64 * Math.PI, warp = Math.sin(u) * (Math.sin(v * .5) > 0 ? 1 : -1), weft = Math.sin(v) * (Math.sin(u * .5) > 0 ? -1 : 1); return .5 + .2 * Math.max(warp, weft) + noise(x, y, 32) * .15; });
+  // Scratches: thin straight lines at random angles over a brushed grain.
+  const scratch = field((x, y) => .45 + noise(x, y, 4) * .15 + noise(x, y, 32) * .05);
+  for (let k = 0; k < 90; k++) {
+    const a = rand() * Math.PI, x0 = rand() * N, y0 = rand() * N, len = 10 + rand() * 60, depth = .15 + rand() * .3;
+    for (let t = 0; t < len; t++) { const x = Math.floor(x0 + Math.cos(a) * t) & (N - 1), y = Math.floor(y0 + Math.sin(a) * t) & (N - 1); scratch[y * N + x] -= depth; }
+  }
+  const skinRough = field((x, y) => .55 + noise(x, y, 4) * .25);
+  return { skinNormal: normalMap(pores, 3), skinRough: greyMap(skinRough), clothNormal: normalMap(weave, 2.2), metalRough: greyMap(scratch), metalNormal: normalMap(scratch, 1.2) };
+}
+
+// Each path's eyes: an eyeball whose front pole carries the iris (fibres, a darker rim, a lighter ring round the
+// pupil) and whose sclera is faintly veined towards the back.
+function eyeTexture(color) {
+  const c = document.createElement('canvas'); c.width = 128; c.height = 128;
+  const g = c.getContext('2d'), base = new THREE.Color(color), rand = stream(base.getHex() % 2147483646 + 1);
+  // Rows run from the front pole (top: the canvas is flipped onto the sphere) to the back of the eye.
+  for (let y = 0; y < 128; y++) {
+    const v = y / 127; // distance from the front pole, 0..1
+    for (let x = 0; x < 128; x++) {
+      let r, gr, b;
+      if (v < .06) { r = gr = b = 8; }
+      else if (v < .165) {
+        const t = (v - .06) / .105, fibre = .75 + .5 * Math.abs(Math.sin(x * .9 + rand() * .6)) * (.6 + .4 * rand());
+        const k = (t < .2 ? 1.35 : 1) * fibre * (1 - .55 * Math.max(0, (t - .75) / .25));
+        r = base.r * 255 * k; gr = base.g * 255 * k; b = base.b * 255 * k;
+      } else if (v < .19) { const t = (v - .165) / .025; r = 30 + 200 * t; gr = 26 + 196 * t; b = 30 + 190 * t; }
+      else { const vein = rand() < .006 * v ? 40 : 0; r = 236 - v * 30 + vein * .3; gr = 230 - v * 50 - vein; b = 222 - v * 45 - vein; }
+      g.fillStyle = `rgb(${r | 0},${gr | 0},${b | 0})`; g.fillRect(x, y, 1, 1);
+    }
+  }
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
+  // The glow of glowing eyes comes from the iris alone.
+  const m = document.createElement('canvas'); m.width = m.height = 128;
+  const mg = m.getContext('2d'); mg.fillStyle = '#000'; mg.fillRect(0, 0, 128, 128); mg.fillStyle = '#fff'; mg.fillRect(0, Math.round(127 * .055), 128, Math.round(127 * (.17 - .055)));
+  t.userData.irisMask = new THREE.CanvasTexture(m);
+  return t;
+}
+
+// Materials are shared by role and finish; colour is painted into each part's vertices, so parts of every colour
+// with one finish are drawn together. Roles: skin, hair, cloth (matte), satin, metal, see-through, glowing, and
+// the eyes. Each takes its detail maps, sheen and reflections from the quality level (see setQuality): on High and
+// up the sky's own light (setEnvironment) lights everything, on lower levels a cheap fill does. Only open shells
+// (skirts, brims, sleeves) are two-sided: the back faces of closed shapes would double the shading.
 export class HeroKit {
-  constructor(envMap, fill = .22) { this.envMap = envMap; this.fill = fill; this.cache = new Map(); this.all = []; this.solos = new Map(); }
-  mat(color, { metal = 0, rough = .8, glow = 0, glowColor, opacity = 1, side = THREE.FrontSide } = {}) {
+  constructor(envMap, fill = .22) {
+    this.envMap = envMap; this.fill = fill; this.cache = new Map(); this.all = []; this.solos = new Map();
+    this.q = { ibl: false, detail: true, sheen: false }; this.sky = null; this.day = 1;
+    this.textures = detailTextures(); this.eyes = new Map();
+  }
+  mat(color, { metal = 0, rough = .8, glow = 0, glowColor, opacity = 1, side = THREE.FrontSide, kind } = {}) {
     const c = new THREE.Color(color), alpha = opacity, clear = opacity < 1;
     // See-through parts share one material, their opacity painted in with the colour.
     const transparent = { transparent: true, depthWrite: false, forceSinglePass: true };
     if (glow >= .4) {
       if (glowColor) c.lerp(new THREE.Color(glowColor), .65);
       c.multiplyScalar(Math.min(1.8, .8 + glow * .3));
-      return { material: this.get(`glow${clear},${side}`, () => new THREE.MeshBasicMaterial({ vertexColors: true, side, ...(clear ? transparent : {}) })), tint: c, alpha };
+      return { material: this.get(`glow${clear},${side}`, () => new THREE.MeshBasicMaterial({ vertexColors: true, side, ...(clear ? transparent : {}) }), 'glow'), tint: c, alpha };
     }
     if (glow) c.lerp(new THREE.Color(glowColor ?? color), .5).multiplyScalar(1 + glow);
-    if (clear) return { material: this.get('sheer', () => new THREE.MeshStandardMaterial({ vertexColors: true, roughness: .6, side: DOUBLE, emissive: new THREE.Color().setScalar(this.fill), ...transparent })), tint: c, alpha };
+    // Cloth and hair take the heavier physical shading (for sheen) only where the level shows it.
+    const Cloth = this.q.sheen ? THREE.MeshPhysicalMaterial : THREE.MeshStandardMaterial;
+    if (clear) return { material: this.get('sheer', () => new Cloth({ vertexColors: true, roughness: .6, side: DOUBLE, emissive: new THREE.Color(), ...transparent }), 'cloth'), tint: c, alpha };
+    if (kind === 'skin') return { material: this.get(`skin${side}`, () => new THREE.MeshStandardMaterial({ vertexColors: true, roughness: rough, side, emissive: new THREE.Color() }), 'skin'), tint: c, alpha };
+    if (kind === 'hair') return { material: this.get('hair', () => new Cloth({ vertexColors: true, roughness: .42, emissive: new THREE.Color() }), 'hair'), tint: c, alpha };
     metal = metal > .5 ? 1 : 0; rough = metal ? .3 : rough < .5 ? .4 : .78;
-    return { material: this.get(`lit${metal},${rough},${side}`, () => new THREE.MeshStandardMaterial({ vertexColors: true, metalness: metal, roughness: rough, envMap: metal ? this.envMap : null, envMapIntensity: .32, emissive: new THREE.Color().setScalar(this.fill), side })), tint: c, alpha };
+    const role = metal ? 'metal' : rough < .5 ? 'satin' : 'cloth';
+    return { material: this.get(`lit${metal},${rough},${side}`, () => new (role === 'cloth' ? Cloth : THREE.MeshStandardMaterial)({ vertexColors: true, metalness: metal, roughness: rough, emissive: new THREE.Color(), side }), role), tint: c, alpha };
   }
-  get(key, make) {
-    if (!this.cache.has(key)) { const m = make(); m.onBeforeCompile = heroShader; this.cache.set(key, m); this.all.push(m); }
+  // The eyes of one path, glowing for those whose eyes glow.
+  eye(color, glow = 0) {
+    const key = `eye${color}${glow}`;
+    if (!this.cache.has(key)) {
+      const map = this.eyes.get(color) ?? this.eyes.set(color, eyeTexture(color)).get(color);
+      this.get(key, () => new THREE.MeshStandardMaterial({ map, roughness: .35, emissive: glow ? new THREE.Color(color) : new THREE.Color(), emissiveMap: glow ? map.userData.irisMask : null, emissiveIntensity: glow * .7 }), glow ? 'eyeGlow' : 'eye');
+    }
+    return this.cache.get(key);
+  }
+  // The clear, wet cornea over each eye: it catches the light.
+  cornea() { return this.get('cornea', () => new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: .03, metalness: 0, transparent: true, opacity: .22, depthWrite: false }), 'cornea'); }
+  get(key, make, role = 'cloth') {
+    if (!this.cache.has(key)) {
+      const m = make(); m.userData.role = role; m.onBeforeCompile = role === 'skin' ? skinShader : heroShader;
+      this.cache.set(key, m); this.all.push(m); this.dress(m);
+    }
     return this.cache.get(key);
   }
   // A copy of a shared material for a part drawn on its own (the cape, whose cloth moves vertex by vertex): one
   // material can't serve skinned and plain meshes without switching shader programs at every draw.
   solo(material) {
-    if (!this.solos.has(material)) { const m = material.clone(); m.onBeforeCompile = heroShader; this.solos.set(material, m); }
+    if (!this.solos.has(material)) { const m = material.clone(); m.userData.role = material.userData.role; m.onBeforeCompile = heroShader; this.solos.set(material, m); this.dress(m); }
     return this.solos.get(material);
   }
+  // Fit one material to the quality level: detail maps, sheen, reflections and fill.
+  dress(m) {
+    const role = m.userData.role, q = this.q, T = this.textures, before = `${!!m.envMap}${!!m.normalMap}${!!m.roughnessMap}${m.sheen > 0}`;
+    if (role === 'glow') return;
+    const shiny = role === 'metal' || role === 'cornea' || role === 'eye' || role === 'eyeGlow';
+    m.envMap = q.ibl ? (this.sky ?? this.envMap) : shiny ? this.envMap : null;
+    m.envMapIntensity = q.ibl ? { metal: 1, satin: .7, cornea: 1.2, skin: .38, hair: .45, cloth: .45 }[role] ?? .6 : .32;
+    const detail = q.detail && { skin: [T.skinNormal, .35, 7], cloth: [T.clothNormal, .45, 14], metal: [T.metalNormal, .25, 5] }[role];
+    m.normalMap = detail ? detail[0] : null;
+    if (detail) { m.normalScale = new THREE.Vector2(detail[1], detail[1]); m.normalMap.repeat.set(detail[2], detail[2]); }
+    m.roughnessMap = q.detail ? role === 'skin' ? T.skinRough : role === 'metal' ? T.metalRough : null : null;
+    if (m.isMeshPhysicalMaterial) {
+      m.sheen = q.sheen ? role === 'hair' ? .8 : role === 'cloth' ? .55 : 0 : 0;
+      if (m.sheen) m.sheenColor = new THREE.Color(role === 'hair' ? '#ffffff' : '#d8d0e8'), m.sheenRoughness = role === 'hair' ? .3 : .7;
+    }
+    m.userData.fill = q.ibl ? .05 : this.fill;
+    m.emissive?.setScalar(role === 'eyeGlow' ? 0 : m.userData.fill * (.4 + .6 * this.day));
+    if (before !== `${!!m.envMap}${!!m.normalMap}${!!m.roughnessMap}${m.sheen > 0}`) m.needsUpdate = true;
+  }
+  // `q`: a quality level (graphics.mjs). Re-dresses every material made so far.
+  setQuality(q) { this.q = { ibl: !!q.ibl, detail: !!q.detail, sheen: !!q.post }; for (const m of [...this.all, ...this.solos.values()]) this.dress(m); }
+  // The sky's own light (a prefiltered environment map), used on High and up.
+  setEnvironment(texture) {
+    if (texture === this.sky) return;
+    const first = !this.sky; this.sky = texture;
+    if (this.q.ibl) for (const m of [...this.all, ...this.solos.values()]) if (m.userData.role !== 'glow') { m.envMap = texture; if (first) m.needsUpdate = true; }
+  }
   // Night dims the reflections and the fill light, so heroes don't glow in the dark.
-  setDaylight(day) { for (const m of [...this.all, ...this.solos.values()]) { if (m.envMap) m.envMapIntensity = .14 + .3 * day; m.emissive?.setScalar(this.fill * (.4 + .6 * day)); } }
+  setDaylight(day) {
+    this.day = day;
+    for (const m of [...this.all, ...this.solos.values()]) {
+      if (m.userData.role === 'glow' || m.userData.role === 'eyeGlow') continue;
+      if (m.envMap && !this.q.ibl) m.envMapIntensity = .14 + .3 * day;
+      m.emissive?.setScalar((m.userData.fill ?? this.fill) * (.4 + .6 * day));
+    }
+  }
 }
 
 // Groups built with `fixed` set (flowers, skulls, crystal clusters) never move on their own: fold them into their
@@ -193,8 +322,9 @@ function bakeSkinned(hero) {
     // Into the hero's space; every vertex follows its one bone.
     let g = o.geometry.index ? o.geometry.clone() : o.geometry.clone().setIndex([...Array(o.geometry.attributes.position.count).keys()]);
     g.applyMatrix4(_m.copy(o.matrixWorld));
-    for (const k of Object.keys(g.attributes)) if (k !== 'position' && k !== 'normal' && k !== 'color') g.deleteAttribute(k);
+    for (const k of Object.keys(g.attributes)) if (k !== 'position' && k !== 'normal' && k !== 'color' && k !== 'uv') g.deleteAttribute(k);
     if (!g.attributes.color) g.setAttribute('color', new THREE.Float32BufferAttribute(new Float32Array(g.attributes.position.count * 3).fill(1), 3));
+    if (!g.attributes.uv) g.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(g.attributes.position.count * 2), 2));
     const n = g.attributes.position.count;
     g.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(new Uint16Array(n * 4).map((_, i) => i % 4 ? 0 : bone), 4));
     g.setAttribute('skinWeight', new THREE.Float32BufferAttribute(new Float32Array(n * 4).map((_, i) => i % 4 ? 0 : 1), 4));
@@ -213,7 +343,7 @@ function bakeSkinned(hero) {
   for (const [material, parts] of byMaterial) {
     const mesh = new THREE.SkinnedMesh(mergeGeometries(parts), material);
     for (const g of parts) g.dispose();
-    mesh.userData.baked = true;
+    mesh.userData.baked = true; mesh.castShadow = true; mesh.receiveShadow = !material.transparent;
     // Sized once for every pose: no per-frame bounds from the bones.
     mesh.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 1.1, 0), 2.4);
     root.add(mesh); mesh.updateMatrixWorld(true);
@@ -233,6 +363,8 @@ export class Hero {
     this.root = new THREE.Group(); this.root.scale.setScalar(scale);
     this.phase = 0; this.sway = 0; this.lookKey = null; this.gear = []; this.spinners = [];
     this.buildBody();
+    // Wide skirts hold the arms a little further out, so hands don't pass through them.
+    this.hipWidth = revealing ? 0 : .05;
     foldFixed(this.root);
     this.setLook(look);
   }
@@ -277,7 +409,7 @@ export class Hero {
   }
 
   buildBody() {
-    const P = this.pal, S = this.style, root = this.root, rev = this.revealing, skin = this.m(P.skin, { rough: S.hag ? .85 : .55 });
+    const P = this.pal, S = this.style, root = this.root, rev = this.revealing, skin = this.m(P.skin, { rough: S.hag ? .8 : .5, kind: 'skin' });
     // A soft shadow keeps her on the ground.
     const shadow = new THREE.Mesh(new THREE.CircleGeometry(.55, 24), new THREE.MeshBasicMaterial({ color: '#000', transparent: true, opacity: .32, depthWrite: false }));
     shadow.rotation.x = -Math.PI / 2; shadow.position.y = .03; root.add(this.shadowMesh = shadow);
@@ -319,9 +451,7 @@ export class Hero {
       if (sleeved) this.sleeve(sleeve);
       else this.armWraps(shoulder, elbow, side);
       const hand = this.moving(this.group(elbow, 0, -.27, 0));
-      const palm = this.add(hand, ball(.04, 8, 6), skin); palm.scale.set(.8, 1, .55);
-      for (let f = 0; f < 4; f++) { const finger = this.add(hand, new THREE.CapsuleGeometry(.008, S.hag ? .06 : .045, 3, 6), skin, (f - 1.5) * .016 * side, -.058, .006); finger.rotation.x = .25; }
-      this.add(hand, new THREE.CapsuleGeometry(.009, .035, 3, 6), skin, .027 * side, -.02, .02).rotation.z = -side * .7;
+      this.hand(hand, side, skin, side < 0 ? .95 : .4);
       return { shoulder, elbow, hand, side, sleeve };
     });
 
@@ -476,34 +606,90 @@ export class Hero {
   }
 
   // Head: a face of the path's kind, and hair.
+  // A hand: a shaped palm, four jointed fingers of natural lengths curling towards the palm, a thumb set apart, and
+  // nails. `curl` 0 is open, 1 a closed grip (the staff hand).
+  hand(hand, side, skin, curl) {
+    const S = this.style, long = S.hag ? 1.25 : 1, nail = this.m(S.hag ? '#c8c098' : '#f0d0c8', { rough: .35 });
+    const palm = this.add(hand, ball(.042, 12, 10), skin, 0, -.032, .004); palm.scale.set(.82, 1, .48);
+    [.05, .057, .054, .044].forEach((len, f) => {
+      const x = (f - 1.5) * .0175 * side, l = len * long, c = curl * (.9 + f * .08), y0 = -.068;
+      // Three phalanges, each bending a little more than the last.
+      const a1 = .25 * c, a2 = a1 + .55 * c, a3 = a2 + .5 * c, l1 = l * .45, l2 = l * .32, l3 = l * .23;
+      const p1 = [x, y0 - Math.cos(a1) * l1, Math.sin(a1) * l1], p2 = [x * 1.02, p1[1] - Math.cos(a2) * l2, p1[2] + Math.sin(a2) * l2], p3 = [x * 1.03, p2[1] - Math.cos(a3) * l3, p2[2] + Math.sin(a3) * l3];
+      this.add(hand, taperedTube([[x, y0 + .012, 0], [x, y0, 0], p1, p2, p3], .0088, t => 1 - t * .32, 6, 5), skin);
+      this.add(hand, ball(.0055, 6, 4), nail, p3[0], p3[1] + Math.cos(a3) * .004, p3[2] + .0035 - Math.sin(a3) * .002).scale.set(1, 1.3, .45);
+    });
+    const tc = .3 + curl * .5;
+    this.add(hand, taperedTube([[side * .022, -.02, .012], [side * .036, -.04, .022], [side * (.04 - tc * .012), -.058, .032 + tc * .008], [side * (.036 - tc * .02), -.072, .04 + tc * .006]], .0095, t => 1 - t * .3, 8, 6), skin);
+  }
+
+  // An eye: an eyeball whose iris follows her gaze (see update), a clear cornea that catches the light, a lower
+  // lid, and an upper lid with lashes that blinks.
+  eye(head, s, { x = .045, y = .012, z = .099, r = .021, color, glow = 0, lash = '#1a1210' }) {
+    const gaze = this.moving(this.group(head, s * x, y, z));
+    const ballGeo = new THREE.SphereGeometry(r, 18, 12); ballGeo.rotateX(Math.PI / 2); // the iris pole faces forward
+    this.add(gaze, ballGeo, this.kit.eye(color, glow));
+    const corneaGeo = new THREE.SphereGeometry(r * 1.035, 14, 4, 0, Math.PI * 2, 0, Math.PI * .3); corneaGeo.rotateX(Math.PI / 2);
+    this.add(gaze, corneaGeo, this.kit.cornea(), 0, 0, r * .015);
+    const skin = this.m(this.pal.skin, { rough: .5, kind: 'skin' });
+    const upper = this.moving(this.group(head, s * x, y, z));
+    this.add(upper, new THREE.SphereGeometry(r * 1.13, 14, 5, 0, Math.PI * 2, 0, Math.PI * .5), skin).scale.set(1.05, 1, 1.02);
+    const lashes = new THREE.TorusGeometry(r * 1.14, .0011, 3, 14, Math.PI); lashes.rotateX(Math.PI / 2);
+    this.add(upper, lashes, this.m(lash, { rough: .8 })).scale.set(1.08, 1, 1.03);
+    const lower = this.group(head, s * x, y, z);
+    const lowerGeo = new THREE.SphereGeometry(r * 1.1, 14, 4, 0, Math.PI * 2, Math.PI * .5, Math.PI * .5);
+    this.add(lower, lowerGeo, skin).rotation.x = .62;
+    upper.userData.open = -.62; upper.rotation.x = -.62;
+    return { gaze, lid: upper };
+  }
+
+  // A sculpted head: a rounded skull, temples, cheekbones, a jaw narrowing to the chin, eye sockets and a brow.
+  // The hag's is longer and gaunter.
+  headGeometry(hag) {
+    const R = .125, geo = new THREE.SphereGeometry(R, 34, 24), hp = geo.attributes.position;
+    const bump = (x, y, z, cx, cy, cz, r) => Math.exp(-((x - cx) ** 2 + (y - cy) ** 2 + (z - cz) ** 2) / (r * r));
+    for (let i = 0; i < hp.count; i++) {
+      let x = hp.getX(i), y = hp.getY(i), z = hp.getZ(i);
+      const low = Math.max(0, -y / R), front = Math.max(0, z / R), ax = Math.abs(x);
+      x *= 1 - low * (hag ? .4 : .32) - (1 - front) * low * .05;
+      y *= hag ? 1.2 : 1.13;
+      z *= 1.04;
+      if (z > 0) z += low * low * (hag ? .05 : .03); // the chin forward
+      let push = 0;
+      push += bump(ax, y, z, .068, -.01, .088, .03) * .009;           // cheekbones
+      push -= bump(ax, y, z, .045, .014, .112, .022) * .011;          // eye sockets
+      push += bump(ax, y, z, .042, .042, .112, .03) * .006;           // brow
+      push -= bump(ax, y, z, .108, .02, .02, .04) * .006;             // temples
+      push += bump(ax, y, z, .055, -.085, .07, .035) * (hag ? .002 : .005); // the jaw's corner
+      const l = Math.hypot(x, y, z) || 1;
+      hp.setXYZ(i, x + x / l * push, y + y / l * push, z + z / l * push);
+    }
+    geo.computeVertexNormals();
+    return geo;
+  }
+
   buildHead(skin) {
     const P = this.pal, S = this.style, torso = this.torso;
-    const head = this.head = this.moving(this.group(torso, 0, .63, 0));
-    head.scale.setScalar(1.12);
+    // A head in natural proportion (about seven heads tall); worn hats keep their size (see wear).
+    const head = this.head = this.moving(this.group(torso, 0, .615, 0));
+    head.scale.setScalar(HEAD_SCALE);
     this.add(torso, new THREE.CylinderGeometry(.043, .052, .12, 12), skin, 0, .52, 0);
     if (this.cls === 'hex' || this.cls === 'bloom') this.add(torso, new THREE.TorusGeometry(.048, .008, 6, 20), this.m(this.cls === 'hex' ? '#120c16' : P.trim, { rough: .5, metal: this.cls === 'bloom' ? 1 : 0 }), 0, .53, 0).rotation.x = Math.PI / 2;
     // One smooth head: rounded above, narrowing into cheeks and chin; the hag's is longer and more pointed.
-    const geo = new THREE.SphereGeometry(.125, 28, 20), hp = geo.attributes.position;
-    for (let i = 0; i < hp.count; i++) {
-      const x = hp.getX(i), y = hp.getY(i), z = hp.getZ(i), low = Math.max(0, -y / .125);
-      hp.setXYZ(i, x * (1 - low * (S.hag ? .38 : .3)), y * (S.hag ? 1.2 : 1.12), z * 1.05 + (z > 0 ? low * low * (S.hag ? .05 : .025) : 0));
-    }
-    geo.computeVertexNormals();
-    this.add(head, geo, skin);
-    const eyeGlow = this.m(P.eyes, { glow: S.eyeGlow, rough: .2 });
+    this.add(head, this.headGeometry(S.hag), skin);
+    this.eyeParts = [];
     for (const s of [-1, 1]) {
-      const ear = this.add(head, new THREE.ConeGeometry(.022, S.hag ? .09 : .07, 8), skin, s * .122, .0, -.02); ear.rotation.set(-1.0, 0, -s * .5);
+      // An ear with a rim and a lobe.
+      const ear = this.add(head, ball(.026, 12, 10), skin, s * .121, .002, -.012); ear.scale.set(.32, 1, .62); ear.rotation.set(-.15, s * .35, 0);
+      this.add(head, ball(.011, 8, 6), skin, s * .123, -.022, -.004).scale.set(.5, 1, .8);
       if (S.hag) {
-        this.add(head, new THREE.SphereGeometry(.03, 12, 10), this.m('#2a2a1a', { rough: 1 }), s * .046, .012, .103).scale.set(1.2, .9, .5);
-        this.add(head, new THREE.SphereGeometry(.021, 12, 10), this.m(P.eyes, { glow: 3.2, rough: .2 }), s * .046, .012, .118);
-        this.add(head, new THREE.SphereGeometry(.028, 10, 8), this.m(P.eyes, { glow: 1.2, opacity: .18 }), s * .046, .012, .113);
-        this.add(head, new THREE.SphereGeometry(.006, 8, 6), this.m('#1a0e00'), s * .046, .012, .135);
+        // Sunken, shadowed sockets round eyes that glow.
+        this.add(head, ball(.03, 12, 10), this.m('#2a2a1a', { rough: 1 }), s * .046, .012, .096).scale.set(1.25, .95, .5);
+        this.eyeParts.push(this.eye(head, s, { x: .046, z: .1, r: .02, color: P.eyes, glow: 3, lash: '#2a2a1a' }));
+        this.add(head, ball(.028, 10, 8), this.m(P.eyes, { glow: 1.2, opacity: .18 }), s * .046, .012, .113);
       } else {
-        if (S.shadow) this.add(head, new THREE.SphereGeometry(.03, 12, 10), this.m('#3a1a40', { rough: .6, opacity: .7 }), s * .046, .016, .1).scale.set(1.3, .9, .5);
-        this.add(head, new THREE.SphereGeometry(.024, 14, 12), this.m('#f8f6f0', { rough: .3 }), s * .045, .01, .108).scale.set(1.15, .8, .6);
-        this.add(head, new THREE.SphereGeometry(.0135, 12, 10), eyeGlow, s * .045, .009, .121);
-        this.add(head, new THREE.SphereGeometry(.006, 8, 6), this.m('#111', { rough: .1 }), s * .045, .009, .1305);
-        const lid = this.add(head, new THREE.TorusGeometry(.024, .0045, 4, 14, Math.PI), this.m('#1a1210'), s * .045, .012, .118); lid.scale.set(1.15, .9, .5);
+        if (S.shadow) this.add(head, ball(.03, 12, 10), this.m('#3a1a40', { rough: .6, opacity: .7 }), s * .046, .016, .1).scale.set(1.3, .9, .5);
+        this.eyeParts.push(this.eye(head, s, { color: P.eyes, glow: S.eyeGlow > 1 ? S.eyeGlow * .5 : 0 }));
       }
       this.add(head, taperedTube([[s * .022, .045, .121], [s * .048, .053, .12], [s * .072, .046, .112]], .0055, t => 1 - t * .5, 8, 5), this.m(S.hag ? '#4a4a3a' : P.hair));
       if (S.blush) this.add(head, new THREE.SphereGeometry(.02, 10, 8), this.m('#ff9ab0', { rough: .7, opacity: .35 }), s * .066, -.03, .108).scale.set(1, .7, .4);
@@ -520,14 +706,17 @@ export class Hero {
       for (const s of [-1, 1]) this.add(head, new THREE.BoxGeometry(.02, .002, .004), this.m('#4a5440'), s * .05, -.055, .113).rotation.z = s * .6;
       for (let i = 0; i < 4; i++) this.add(head, new THREE.BoxGeometry(.04, .002, .004), this.m('#5a6450'), 0, .07 + i * .01, .118 - i * .004);
     } else {
-      this.add(head, new THREE.SphereGeometry(.014, 12, 10), skin, 0, -.022, .137).scale.set(.9, 1.5, 1);
+      // The nose: a bridge running down from the brow to a rounded tip, with nostrils either side.
+      this.add(head, taperedTube([[0, .03, .121], [0, .005, .13], [0, -.02, .139], [0, -.034, .142]], .0085, t => .55 + t * .5, 10, 8), skin);
+      this.add(head, ball(.0125, 12, 10), skin, 0, -.035, .139).scale.set(1, .85, .95);
+      for (const s of [-1, 1]) this.add(head, ball(.008, 8, 6), skin, s * .0105, -.038, .133).scale.set(1, .8, 1);
       this.add(head, new THREE.SphereGeometry(.016, 12, 8), this.m(P.lips, { rough: .35 }), 0, -.062, .126).scale.set(1.3, .38, .5);
       this.add(head, new THREE.SphereGeometry(.015, 12, 8), this.m(P.lips, { rough: .35 }), 0, -.071, .123).scale.set(1.15, .42, .5);
     }
     if (this.cls === 'hex' || this.cls === 'bloom') for (const s of [-1, 1]) this.pendant(head, s * .125, -.03, .0, .035, .012, this.m(P.trim, { metal: 1, rough: .3 }), this.m(P.crystal, { glow: .9, rough: .1 }));
 
     // Hair: a crown, a fringe, and long strands down the back that sway.
-    const hairMat = this.m(P.hair, { rough: .45 }), streak = this.m(P.streak, { rough: .45 }), rand = stream(this.cls.length * 13 + 5);
+    const hairMat = this.m(P.hair, { kind: 'hair' }), streak = this.m(P.streak, { kind: 'hair' }), rand = stream(this.cls.length * 13 + 5);
     this.hair = this.moving(this.group(head));
     const cap = this.add(this.hair, new THREE.SphereGeometry(.135, 28, 16, 0, Math.PI * 2, 0, Math.PI * .36), hairMat, 0, .012, -.006); cap.scale.set(1.04, 1.1, 1.08);
     const back = this.add(this.hair, new THREE.SphereGeometry(.142, 24, 14, Math.PI * .82, Math.PI * 1.36, Math.PI * .2, Math.PI * .62), hairMat, 0, .005, -.01); back.scale.set(1.04, 1.12, 1.1);
@@ -581,7 +770,7 @@ export class Hero {
     for (const g of this.gear) { g.parent?.remove(g); g.traverse(o => o.geometry?.dispose()); }
     this.gear = [];
   }
-  wear(parent, group) { parent.add(group); this.gear.push(group); return group; }
+  wear(parent, group) { parent.add(group); this.gear.push(group); if (parent === this.head) group.scale.setScalar(1.12 / HEAD_SCALE); return group; }
 
   // `look`: slot → [kind, rarity]. Rebuilds only what's worn; the body stays.
   setLook(look = {}) {
@@ -862,11 +1051,22 @@ export class Hero {
   tint(a, b) { return '#' + new THREE.Color(a).lerp(new THREE.Color(b), .35).getHexString(); }
 
   // Animate. `s`: { moving, sprinting, swing (1→0 during a strike or cast), mounted, flying, glamour }.
+  // Animate. `s`: { moving, sprinting, swing (1→0 during a strike or cast), mounted, flying, glamour,
+  // ground (x, z → height, for the feet on slopes), look (a world point to look at) }.
   update(dt, now, s = {}) {
-    const move = s.moving ? 1 : 0, S = this.style;
-    this.sway += ((s.flying ? 1.4 : move * (s.sprinting ? 1 : .6)) - this.sway) * Math.min(1, dt * 4);
-    this.phase += dt * (s.moving && !s.mounted ? (s.sprinting ? 11 : 8) : 0);
-    const ph = this.phase, walk = s.mounted ? 0 : move, breath = Math.sin(now * 2.1);
+    const S = this.style, root = this.root, sc = root.scale.x;
+    // How fast she really moves (from where the game has put her): the stride follows it, so feet don't slide.
+    const at = root.position, last = this.at ?? at.clone(), v = dt > 0 ? Math.hypot(at.x - last.x, at.z - last.z) / dt : 0;
+    this.speed = (this.speed ?? 0) + ((v < 25 ? v : 0) * (s.moving ? 1 : .3) - (this.speed ?? 0)) * Math.min(1, dt * 8);
+    this.at = at.clone();
+    const yaw = root.rotation.y, turnRate = dt > 0 ? (((yaw - (this.lastYaw ?? yaw)) + Math.PI * 3) % (Math.PI * 2) - Math.PI) / dt : 0;
+    this.lastYaw = yaw; this.turn = (this.turn ?? 0) + (turnRate - (this.turn ?? 0)) * Math.min(1, dt * 5);
+    const speed = this.speed / sc, gait = s.mounted ? 0 : Math.min(1, speed / 2.2), run = Math.min(1, Math.max(0, (speed - 5.5) / 3));
+    // Swing and cadence: a stance foot moves back exactly as fast as the body goes forward.
+    const legLen = .88, swing = .3 + Math.min(.5, speed * .05);
+    if (gait > .02) this.phase += dt * speed / (swing * legLen);
+    this.sway += ((s.flying ? 1.4 : gait * (.6 + run * .4)) - this.sway) * Math.min(1, dt * 4);
+    const ph = this.phase, walk = gait, breath = Math.sin(now * 2.1);
     this.broom.visible = !!s.mounted;
     this.disguise.visible = !!s.glamour;
     for (const g of this.gear) if (g.parent === this.head || g.parent === this.torso || g.parent === this.body) g.visible = !s.glamour;
@@ -874,22 +1074,26 @@ export class Hero {
     this.hair.visible = !s.glamour && !this.hoodUp;
     if (this.held) this.held.visible = !s.glamour && !s.mounted;
 
-    this.body.position.y = s.mounted ? -.12 : Math.abs(Math.sin(ph)) * .035 * walk;
-    this.body.rotation.x = s.flying ? .18 * Math.min(1, this.sway) : walk * .06;
+    this.body.position.y = s.mounted ? -.12 : Math.abs(Math.sin(ph)) * (.03 + run * .025) * walk;
+    // Leaning into speed and into turns; standing, a slow shift of weight from foot to foot.
+    this.body.rotation.x = s.flying ? .18 * Math.min(1, this.sway) : walk * (.05 + run * .1);
+    this.body.rotation.z = s.mounted ? 0 : Math.max(-.14, Math.min(.14, -this.turn * .045 * walk)) + (1 - walk) * Math.sin(now * .55) * .018;
+    this.body.position.x = s.mounted ? 0 : (1 - walk) * Math.sin(now * .55) * .012;
     this.torso.rotation.x = S.hunch;
     this.head.rotation.set(-S.hunch * .7 + Math.sin(now * .7) * .03 - walk * .05, Math.sin(now * .45) * .08, 0);
     this.torso.scale.set(1 + breath * .006, 1 + breath * .012, 1 + breath * .006);
     this.legs.forEach((l, i) => {
       if (s.mounted) { l.hip.rotation.set(-1.25, 0, (i ? 1 : -1) * .12); l.knee.rotation.x = 1.35; return; }
-      const a = Math.sin(ph + i * Math.PI) * .55 * walk;
-      l.hip.rotation.set(a - S.hunch * .3, 0, 0); l.knee.rotation.x = Math.max(0, -Math.sin(ph + i * Math.PI + .6)) * .8 * walk + S.hunch * .3;
+      const a = Math.sin(ph + i * Math.PI) * swing * walk, idleBend = (1 - walk) * Math.max(0, Math.sin(now * .55) * (i ? 1 : -1)) * .12;
+      l.hip.rotation.set(a - S.hunch * .3 - idleBend * .5, 0, 0); l.knee.rotation.x = Math.max(0, -Math.sin(ph + i * Math.PI + .6)) * (.8 + run * .5) * walk + S.hunch * .3 + idleBend;
     });
+    if (s.ground && !s.mounted && !s.flying) this.plantFeet(s.ground);
     this.skirt.rotation.x = -.05 * walk - .1 * (s.flying ? 1 : 0);
     this.skirt.rotation.z = Math.sin(ph) * .04 * walk + Math.sin(now * 1.3) * .01;
     this.arms.forEach((a, i) => {
-      const counter = Math.sin(ph + (i ? 0 : Math.PI)) * .45 * walk;
-      a.shoulder.rotation.set(counter + (s.mounted ? -.6 : 0) - S.hunch * .5, 0, a.side * (.12 + breath * .01 + (s.flying ? .25 : 0)));
-      a.elbow.rotation.x = -.25 - (s.mounted ? .7 : 0) - Math.max(0, counter) * .4;
+      const counter = Math.sin(ph + (i ? 0 : Math.PI)) * (.4 + run * .25) * walk;
+      a.shoulder.rotation.set(counter + (s.mounted ? -.6 : 0) - S.hunch * .5, 0, a.side * (.14 + this.hipWidth + breath * .01 + (s.flying ? .25 : 0)));
+      a.elbow.rotation.x = -.25 - run * .7 - (s.mounted ? .7 : 0) - Math.max(0, counter) * .4;
     });
     // The off hand holds the path's magic up and forward; the Wild Witch reaches out.
     const off = this.arms[0];
@@ -901,6 +1105,7 @@ export class Hero {
     // Bell sleeves hang from the elbow under their own weight, whatever the arm is doing.
     for (const a of this.arms) if (a.sleeve) a.sleeve.rotation.x = -(a.shoulder.rotation.x + a.elbow.rotation.x + this.torso.rotation.x) * .8;
     this.strands.rotation.x = .1 + this.sway * .5 + Math.sin(now * 1.7) * .03;
+    this.lookAround(dt, now, s.look);
     if (this.hatTip) this.hatTip.rotation.z = Math.sin(now * 2 + ph) * .3;
     if (this.orb) this.orb.rotation.y = now * 1.5;
     if (this.lantern) this.lantern.rotation.z = Math.sin(now * 2.2 + ph) * .25;
@@ -923,6 +1128,50 @@ export class Hero {
         pos.setXYZ(i, x, y * (1 - trail * .3 * v), wrap - (v ** 1.4) * trail - .02 * v - ripple);
       }
       pos.needsUpdate = true; cape.geometry.computeVertexNormals();
+    }
+  }
+
+  // Feet on the ground over uneven terrain: the hips drop to the lower foot and the other leg bends to meet the
+  // slope (a two-joint leg solved exactly).
+  plantFeet(ground) {
+    const root = this.root, sc = root.scale.x, yaw = root.rotation.y, c = Math.cos(yaw), sn = Math.sin(yaw), base = root.position.y;
+    const L1 = .46, L2 = .42, rise = this.legs.map((l, i) => {
+      const lx = (i ? 1 : -1) * .088, lz = Math.sin(l.hip.rotation.x * -1) * (L1 + L2) * .9;
+      const wx = root.position.x + (c * lx + sn * lz) * sc, wz = root.position.z + (-sn * lx + c * lz) * sc;
+      return (ground(wx, wz) - base) / sc;
+    });
+    const drop = Math.max(-.22, Math.min(0, ...rise));
+    this.body.position.y += drop;
+    this.legs.forEach((l, i) => {
+      const lift = Math.max(0, Math.min(.3, rise[i] - drop));
+      if (lift < .005) return;
+      const len = L1 + L2 - lift, cosK = (len * len - L1 * L1 - L2 * L2) / (2 * L1 * L2), k = Math.acos(Math.max(-1, Math.min(1, cosK)));
+      l.knee.rotation.x += k; l.hip.rotation.x -= Math.asin(Math.min(1, L2 * Math.sin(k) / len));
+    });
+  }
+
+  // Where she looks: the head turns part of the way to what holds her attention and the eyes the rest, with the
+  // small quick jumps real eyes make; she blinks every few seconds.
+  lookAround(dt, now, target) {
+    const root = this.root, look = this.look ??= { yaw: 0, pitch: 0, sy: 0, sp: 0, next: 0, blink: 2, closing: 0 };
+    let ty = 0, tp = 0;
+    if (target) {
+      const dx = target.x - root.position.x, dz = target.z - root.position.z, yaw = root.rotation.y, c = Math.cos(yaw), sn = Math.sin(yaw);
+      const lx = c * dx - sn * dz, lz = sn * dx + c * dz, eyeY = root.position.y + 1.7 * root.scale.x;
+      ty = Math.atan2(lx, lz); tp = Math.atan2(target.y - eyeY, Math.hypot(dx, dz));
+      if (Math.abs(ty) > 1.6) ty = tp = 0; // behind her: let it go
+    }
+    look.yaw += (Math.max(-1.1, Math.min(1.1, ty)) - look.yaw) * Math.min(1, dt * 3.5);
+    look.pitch += (Math.max(-.4, Math.min(.35, tp)) - look.pitch) * Math.min(1, dt * 3.5);
+    if ((look.next -= dt) <= 0) { look.next = .4 + Math.random() * 2.2; look.sy = (Math.random() - .5) * .16; look.sp = (Math.random() - .5) * .08; }
+    this.head.rotation.y += look.yaw * .65; this.head.rotation.x -= look.pitch * .5;
+    if ((look.blink -= dt) <= 0) { look.blink = 1.8 + Math.random() * 4.5; look.closing = .17; }
+    const shut = look.closing > 0 ? Math.sin((1 - look.closing / .17) * Math.PI) : 0;
+    look.closing = Math.max(0, look.closing - dt);
+    for (const e of this.eyeParts ?? []) {
+      e.gaze.rotation.y = Math.max(-.45, Math.min(.45, look.yaw * .35 + look.sy));
+      e.gaze.rotation.x = Math.max(-.3, Math.min(.3, -look.pitch * .5 + look.sp));
+      e.lid.rotation.x = e.lid.userData.open + shut * 1.02 + Math.max(0, look.pitch) * -.1;
     }
   }
 }

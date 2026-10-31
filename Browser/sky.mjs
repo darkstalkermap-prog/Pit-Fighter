@@ -4,9 +4,9 @@
 import * as THREE from 'three';
 
 const PALETTE = {
-  day: { zenith: '#3f7fd0', horizon: '#b4dcf0' },
-  dusk: { zenith: '#3b2a6e', horizon: '#f2946a' },
-  night: { zenith: '#05081a', horizon: '#1b2252' },
+  day: { zenith: '#1d55b8', horizon: '#86b8e0' },
+  dusk: { zenith: '#2a1d5c', horizon: '#e07848' },
+  night: { zenith: '#020410', horizon: '#0e1434' },
 };
 const C = Object.fromEntries(Object.entries(PALETTE).map(([k, v]) => [k, { zenith: new THREE.Color(v.zenith), horizon: new THREE.Color(v.horizon) }]));
 
@@ -29,7 +29,10 @@ void main() {
   gl_Position = p.xyww; // on the far plane, behind everything
 }`;
 const DOME_FRAG = `varying vec3 vColor;
-void main() { gl_FragColor = vec4(vColor, 1.0); }`;
+void main() { gl_FragColor = vec4(vColor, 1.0);
+  #include <tonemapping_fragment>
+  #include <colorspace_fragment>
+}`;
 
 // Stars: points on the far plane, each with its own colour and twinkle.
 const STAR_VERT = `attribute float seed;
@@ -44,7 +47,10 @@ void main() {
   gl_Position = p.xyww;
 }`;
 const STAR_FRAG = `varying vec3 vColor;
-void main() { vec2 c = gl_PointCoord - 0.5; gl_FragColor = vec4(vColor * smoothstep(0.5, 0.1, length(c)), 1.0); }`;
+void main() { vec2 c = gl_PointCoord - 0.5; gl_FragColor = vec4(vColor * smoothstep(0.5, 0.1, length(c)), 1.0);
+  #include <tonemapping_fragment>
+  #include <colorspace_fragment>
+}`;
 
 // Aurora: slow ribbons of teal and violet over the northern sky, drawn only on a band of it and only at night.
 const AURORA_VERT = `varying vec3 vDir;
@@ -67,6 +73,8 @@ void main() {
   float n = noise(vec3(d.x * 2.5 + uTime * 0.015, d.y * 6.0, d.z * 2.5)) * 0.6 + noise(vec3(d.x * 7.0, d.y * 14.0 - uTime * 0.04, d.z * 7.0)) * 0.4;
   float band = smoothstep(0.12, 0.35, h) * (1.0 - smoothstep(0.45, 0.85, h)) * smoothstep(0.1, -0.6, d.z);
   gl_FragColor = vec4(mix(vec3(0.15, 0.95, 0.7), vec3(0.65, 0.3, 1.0), smoothstep(0.2, 0.7, h)) * smoothstep(0.45, 0.85, n) * band * 0.45 * uNight, 1.0);
+  #include <tonemapping_fragment>
+  #include <colorspace_fragment>
 }`;
 
 // Canvas-painted textures for the sun, moon, rune ring and glows.

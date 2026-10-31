@@ -1078,7 +1078,11 @@ function autoScale(raw, dt) {
   if (raw > .25) return; // a stall (tab switch, chunk load), not a trend
   frameAvg += (raw - frameAvg) * .05;
   if (gfx !== 'auto' || mode !== 'playing' || (scaleTimer -= dt) > 0) return;
+  // Far too slow for this level (a slideshow): a simpler level at once.
+  if (frameAvg > 1 / 12 && view.stepDown()) { frameAvg = 1 / 30; scaleTimer = 3; return; }
   if (frameAvg > 1 / 38 && view.scale > .5) { view.setScale(Math.max(.5, view.scale - .1)); scaleTimer = 1; }
+  // Still slow at the lowest resolution: drop to a simpler level (fewer shadows, no grass, no final pass).
+  else if (frameAvg > 1 / 30 && view.scale <= .5 && view.stepDown()) { frameAvg = 1 / 45; scaleTimer = 4; }
   else if (frameAvg < 1 / 55 && view.scale < 1) { view.setScale(Math.min(1, view.scale + .1)); scaleTimer = 3; }
   else scaleTimer = .5;
 }
@@ -1097,6 +1101,7 @@ function frame(now) {
     const built = allBuildings(), lights = lightSources();
     view.syncRemotes([...remotes.values()], now / 1000);
     view.syncWorld({ creatures, allies, boss, buildings: built, projectiles, elders: elders().filter(e => near(e, p, 300)), now: now / 1000 });
+    view.bossDefeated = net.online ? !!serverBoss?.down : state.bossDefeated;
     view.render({ player: p, yaw, pitch, dayTime: state.dayTime, now: now / 1000, dt, swing, toolName: R.weapon(p).name, lights, moving: moving && mode === 'playing', sight: !!p.effects.sight, sprinting: !!p.sprinting, look: lookOf(p), glamour: !!p.effects.glamour, mounted: !!p.mounted, flying: !!p.flying });
     put('#hurt', 'className', hurtFlash > 0 ? 'on' : '');
     if (mode === 'pack' && tab === 'items') { portrait ??= new HeroPreview($('#heroCanvas')); portrait.show(p.class, lookOf(p), now / 1000, dt); }

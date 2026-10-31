@@ -4,7 +4,7 @@ import {chromium} from 'playwright';
 import {createServer} from 'node:http';
 import {readFile} from 'node:fs/promises';
 const [cls='wild',seconds='6',gfx='auto']=process.argv.slice(2);
-const html=await readFile(new URL('../_site/index.html',import.meta.url));
+const html=await readFile(process.env.PROFILE_HTML ?? new URL('../_site/index.html',import.meta.url));
 const server=createServer((q,r)=>{r.writeHead(200,{'Content-Type':'text/html'});r.end(html);});
 await new Promise(r=>server.listen(0,'127.0.0.1',r));
 const browser=await chromium.launch({headless:true,...(process.env.CHROMIUM_PATH?{executablePath:process.env.CHROMIUM_PATH}:{}),args:['--no-sandbox','--use-angle=swiftshader','--enable-unsafe-swiftshader']});

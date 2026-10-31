@@ -10,6 +10,8 @@ import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment
 import { Hero, HeroKit } from './hero.mjs';
 import { decodeLook } from './loot.mjs';
 import { Sky } from './sky.mjs';
+import { QUALITY, STEP_DOWN, WORLD, flatLambert, shareWorld, waterMaterial, Grass, Beacon, SkyLight, Post } from './graphics.mjs';
+export { QUALITY };
 
 // What coven sisters and elders wear (slot → [kind, rarity]).
 const SISTER_LOOK = { head: ['hat', 2], chest: ['robe', 2], cloak: ['cloak', 2], feet: ['boots', 1], weapon: ['staff', 2] };
@@ -17,56 +19,7 @@ const SISTER_LOOK = { head: ['hat', 2], chest: ['robe', 2], cloak: ['cloak', 2],
 const ELDER_LOOK = { head: ['hat', 3], amulet: ['amulet', 3], weapon: ['staff', 3] };
 
 const MAX_CHUNK = HALF / CHUNK;
-// Graphics levels. Radii are in chunks (250 m): terrain, trees and rocks, and small plants (herbs and bushes).
-// `scale` is the render resolution; Auto starts at full and is lowered or raised by the game as frame times change.
-export const QUALITY = {
-  high: { terrain: 3, objects: 2, small: 1, fogNear: 160, fogFar: 620, scale: 1 },
-  auto: { terrain: 3, objects: 2, small: 1, fogNear: 160, fogFar: 620, scale: 1 },
-  low: { terrain: 2, objects: 1, small: 1, fogNear: 100, fogFar: 400, scale: .6 },
-};
 const DAY = new THREE.Color('#9cc1d6');
-
-// Lambert lighting worked out once per vertex instead of per pixel. Terrain and resource nodes are flat-shaded,
-// every face one flat colour, so on face normals this looks the same as the per-pixel Lambert material and
-// costs a fraction of it on weak GPUs, where the ground covers half the screen.
-function flatLambert() {
-  return new THREE.ShaderMaterial({
-    uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.lights, THREE.UniformsLib.fog]),
-    lights: true, fog: true, vertexColors: true,
-    vertexShader: `#include <common>
-#include <fog_pars_vertex>
-#include <lights_pars_begin>
-varying vec3 vLight;
-void main() {
-  #include <beginnormal_vertex>
-  #include <defaultnormal_vertex>
-  #include <begin_vertex>
-  #include <project_vertex>
-  #include <fog_vertex>
-  vec3 n = normalize(transformedNormal), irradiance = ambientLightColor;
-  #if NUM_HEMI_LIGHTS > 0
-  #pragma unroll_loop_start
-  for (int i = 0; i < NUM_HEMI_LIGHTS; i++) irradiance += getHemisphereLightIrradiance(hemisphereLights[i], n);
-  #pragma unroll_loop_end
-  #endif
-  #if NUM_DIR_LIGHTS > 0
-  #pragma unroll_loop_start
-  for (int i = 0; i < NUM_DIR_LIGHTS; i++) irradiance += saturate(dot(n, directionalLights[i].direction)) * directionalLights[i].color;
-  #pragma unroll_loop_end
-  #endif
-  vLight = color * irradiance * RECIPROCAL_PI;
-}`,
-    fragmentShader: `#include <common>
-#include <fog_pars_fragment>
-varying vec3 vLight;
-void main() {
-  gl_FragColor = vec4(vLight, 1.0);
-  #include <tonemapping_fragment>
-  #include <colorspace_fragment>
-  #include <fog_fragment>
-}`,
-  });
-}
 
 function painted(geometry, color, x = 0, y = 0, z = 0) {
   const g = geometry.index ? geometry.toNonIndexed() : geometry;
@@ -81,7 +34,10 @@ function painted(geometry, color, x = 0, y = 0, z = 0) {
 
 // Resource node models, kept to as few triangles as they can be: thousands are drawn at once.
 // Trunks and cones are open-ended because their caps are always buried or hidden inside the leaves.
-function nodeGeometries() {
+// `style` 'full' (Medium and up) gives trees tiers, clustered crowns and branches, weathered rocks and faces
+// that vary a little in shade, still low-poly; 'simple' (Low) keeps the plainest shapes.
+function nodeGeometries(style = 'simple') {
+  if (style === 'full') return fullNodeGeometries();
   const trunk = (h, r0, r1, color) => painted(new THREE.CylinderGeometry(r0, r1, h, 4, 1, true), color, 0, h / 2, 0);
   const tree = (bark, crown, crownGeo, h = 3) => mergeGeometries([trunk(h, .25, .35, bark), painted(crownGeo, crown, 0, h + 1.6, 0)]);
   const g = {
@@ -100,12 +56,50 @@ function nodeGeometries() {
   for (const [id, n] of Object.entries(NODES)) if (n.herb) g[id] = mergeGeometries([painted(new THREE.ConeGeometry(.12, .7, 3, 1, true), '#3f6a2e', 0, .35, 0), painted(new THREE.OctahedronGeometry(.24, 0), n.color, 0, .72, 0)]);
   return g;
 }
+// A shape whose corners are nudged by a hash of where they are (so faces stay joined) and whose faces each vary
+// a little in shade: bark, foliage and stone that don't look cast from one mould.
+function natural(geometry, color, { x = 0, y = 0, z = 0, jitter = 0, shade = .14, seed = 1 } = {}) {
+  const g = geometry.index ? geometry.toNonIndexed() : geometry, pos = g.attributes.position;
+  const h = (a, b, c, k) => { const v = Math.sin(a * 12.9898 + b * 78.233 + c * 37.719 + k * 4.1 + seed * 1.7) * 43758.5453; return v - Math.floor(v) - .5; };
+  if (jitter) for (let i = 0; i < pos.count; i++) {
+    const px = +pos.getX(i).toFixed(3), py = +pos.getY(i).toFixed(3), pz = +pos.getZ(i).toFixed(3);
+    pos.setXYZ(i, px + h(px, py, pz, 1) * jitter, py + h(px, py, pz, 2) * jitter, pz + h(px, py, pz, 3) * jitter);
+  }
+  g.translate(x, y, z);
+  const c = new THREE.Color(color), colors = new Float32Array(pos.count * 3);
+  for (let i = 0; i < pos.count; i += 3) { const k = 1 + h(i, seed, 0, 5) * shade * 2; for (let v = 0; v < 3; v++) colors.set([c.r * k, c.g * k, c.b * k], (i + v) * 3); }
+  g.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  g.deleteAttribute('uv');
+  g.computeVertexNormals();
+  return g;
+}
+function fullNodeGeometries() {
+  const g = nodeGeometries('simple'), N = natural, cyl = (r0, r1, h, s = 6) => new THREE.CylinderGeometry(r0, r1, h, s, 1, true);
+  const trunk = (h, r0, r1, bark, seed) => [N(cyl(r0, r1, h, 5), bark, { y: h / 2, jitter: .06, seed }), N(cyl(r1 * .9, r1 * 1.7, .5, 5), bark, { y: .2, jitter: .08, seed: seed + 1 })];
+  const branch = (len, r, bark, ax, az, x, y, z, seed) => { const b = cyl(r * .5, r, len, 4); b.translate(0, len / 2, 0); b.rotateZ(az); b.rotateX(ax); return N(b, bark, { x, y, z, jitter: .03, seed }); };
+  const ico = (r, color, x, y, z, seed, sy = 1) => N(new THREE.IcosahedronGeometry(r, 0).scale(1, sy, 1), color, { x, y, z, jitter: r * .18, shade: .16, seed });
+  const cone = (r, h, color, y, seed, s = 6) => N(new THREE.ConeGeometry(r, h, s, 1, true), color, { y, jitter: r * .08, shade: .1, seed });
+  g.pine = mergeGeometries([...trunk(3.2, .2, .32, '#5a3f2a', 1), cone(2.2, 3.4, '#1f3d27', 3.2, 2), cone(1.6, 3, '#24452c', 5, 3), cone(1, 2.4, '#2a4f32', 6.8, 4, 5)]);
+  g.oak = mergeGeometries([...trunk(3, .26, .38, '#5c4430', 6), branch(1.6, .14, '#5c4430', .2, .9, 0, 2.4, 0, 7), branch(1.4, .12, '#5c4430', -.3, -.8, 0, 2.7, 0, 8),
+    ico(1.7, '#3f6b2f', 0, 4.9, 0, 9), ico(1.3, '#4a7a34', 1.25, 4.3, .3, 10), ico(1.25, '#355f29', -1.2, 4.4, -.4, 11), ico(1.1, '#467535', .2, 5.9, -.5, 12), ico(1.05, '#3b6a2e', -.3, 4.1, 1.2, 13)]);
+  g.blossom = mergeGeometries([...trunk(2.8, .22, .34, '#6a4a3a', 14), branch(1.3, .12, '#6a4a3a', .25, .9, 0, 2.2, 0, 15),
+    ico(1.5, '#e7a3c4', 0, 4.3, 0, 16), ico(1.15, '#f2bfd6', 1.1, 3.8, .2, 17), ico(1.1, '#d98bb2', -1.05, 3.9, -.3, 18), ico(.95, '#f7d2e2', .1, 5.2, -.4, 19)]);
+  g.gloomtree = mergeGeometries([...trunk(3.6, .2, .34, '#2a2026', 20), branch(1.8, .1, '#2a2026', .5, 1.1, 0, 2.6, 0, 21), branch(1.5, .09, '#2a2026', -.4, -1.2, 0, 3, 0, 22),
+    cone(2.3, 3.8, '#261d31', 3.6, 23, 6), cone(1.7, 3.2, '#2c2238', 5.5, 24, 6), cone(1, 2.4, '#33283f', 7.1, 25, 5)]);
+  g.deadtree = mergeGeometries([...trunk(4.5, .1, .3, '#4a4238', 26), branch(1.9, .1, '#4a4238', .1, 1.0, 0, 2.6, 0, 27), branch(1.5, .08, '#4a4238', -.4, -1.1, 0, 3.4, 0, 28), branch(1.1, .07, '#4a4238', .9, .2, 0, 3.9, 0, 29)]);
+  g.rock = mergeGeometries([N(new THREE.DodecahedronGeometry(1.5, 0).scale(1, .62, 1.1), '#7a7a74', { y: .4, jitter: .3, shade: .12, seed: 30 }), N(new THREE.DodecahedronGeometry(.6, 0).scale(1, .7, 1), '#6e6e68', { x: 1.3, y: .15, z: .6, jitter: .14, seed: 31 })]);
+  g.bush = mergeGeometries([ico(.7, '#3d5e2e', 0, .6, 0, 32, .85), ico(.55, '#46693a', .55, .45, .25, 33, .85), ico(.5, '#355428', -.45, .45, -.3, 34, .85), N(new THREE.OctahedronGeometry(.13, 0), '#8a2f4a', { x: .55, y: .85, z: .35, seed: 35 }), N(new THREE.OctahedronGeometry(.12, 0), '#8a2f4a', { x: -.3, y: .9, z: .4, seed: 36 })]);
+  return g;
+}
 
 export class WorldView {
   constructor(canvas, world) {
     this.world = world;
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
-    this.quality = QUALITY.auto; this.scale = 1;
+    this.quality = QUALITY.auto; this.level = 'auto'; this.scale = 1;
+    // Filmic tone: highlights roll off instead of clipping, and the exposure follows the light (see render).
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping; this.exposure = 1;
+    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     // A soft studio environment for the heroes' materials only: shine on metal, gems and silk.
     const pmrem = new THREE.PMREMGenerator(this.renderer);
     this.heroKit = new HeroKit(pmrem.fromScene(new RoomEnvironment(), .04).texture);
@@ -117,13 +111,15 @@ export class WorldView {
     this.camera = new THREE.PerspectiveCamera(62, innerWidth / innerHeight, .3, 800);
     this.hemi = new THREE.HemisphereLight(0xcfe3f0, 0x4a4a32, 1.6);
     this.sun = new THREE.DirectionalLight(0xffe8c0, 2.2);
+    // The sun's shadows fall in a box that follows you (see render); normal bias keeps flat faces clean.
+    Object.assign(this.sun.shadow, { bias: -.0004, normalBias: .35 });
     this.scene.add(this.hemi, this.sun, this.sun.target);
 
     this.lambert = new Map();
-    this.terrainMaterial = flatLambert();
-    this.nodeMaterial = flatLambert();
+    this.terrainMaterial = shareWorld(flatLambert({ terrain: true }));
+    this.nodeMaterial = shareWorld(flatLambert());
     this.glowMaterial = new THREE.MeshBasicMaterial({ vertexColors: true });
-    this.nodeGeometry = nodeGeometries();
+    this.nodeGeometry = nodeGeometries(); this.treeStyle = 'simple';
     this.box = new THREE.BoxGeometry(1, 1, 1);
     this.ball = new THREE.IcosahedronGeometry(.5, 0);
     this.chunks = new Map();
@@ -132,12 +128,20 @@ export class WorldView {
     this.entities = new Map();
     this.effects = [];
 
-    // Opaque water: a see-through plane over most of the screen costs a lot of fill on weak GPUs.
-    const water = new THREE.Mesh(new THREE.PlaneGeometry(16000, 16000), new THREE.MeshLambertMaterial({ color: '#2f6a7c' }));
-    water.rotation.x = -Math.PI / 2; water.position.y = .05;
+    // Opaque water: a see-through plane over most of the screen costs a lot of fill on weak GPUs. Plain on Low,
+    // reflecting the sky with a sun glint above it.
+    this.plainWater = new THREE.MeshLambertMaterial({ color: '#2f6a7c' });
+    this.waterMaterial = waterMaterial();
+    const water = this.water = new THREE.Mesh(new THREE.PlaneGeometry(16000, 16000), this.plainWater);
+    water.rotation.x = -Math.PI / 2; water.position.y = .05; water.receiveShadow = true;
     water.updateMatrix(); water.matrixAutoUpdate = false;
     this.scene.add(water);
     this.sky = new Sky(this.scene);
+    this.groundFn = (x, z) => world.ground(x, z);
+    this.grass = new Grass(this.scene, world);
+    const crown = world.pois.find(p => p.type === 'crown');
+    this.beacon = new Beacon(this.scene, crown.x, crown.y, crown.z);
+    this.skyLight = new SkyLight(this.renderer);
     // Firelight, faked: a warm pool on the ground and a soft glow above each nearby fire. Real point lights cost
     // every lit pixel on screen and streaked across the flat-shaded ground.
     const warm = new THREE.CanvasTexture((() => { const c = document.createElement('canvas'); c.width = c.height = 128; const g = c.getContext('2d'), r = g.createRadialGradient(64, 64, 0, 64, 64, 64); r.addColorStop(0, 'rgba(255,170,80,.9)'); r.addColorStop(.4, 'rgba(255,120,40,.35)'); r.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = r; g.fillRect(0, 0, 128, 128); return c; })());
@@ -154,15 +158,47 @@ export class WorldView {
     this.setQuality('auto');
   }
 
-  resize() { this.renderer.setPixelRatio(this.scale); this.renderer.setSize(innerWidth, innerHeight, false); this.camera.aspect = innerWidth / innerHeight; this.camera.updateProjectionMatrix(); }
-
-  setQuality(level) {
-    this.quality = QUALITY[level] ?? QUALITY.auto;
-    this.scene.fog.near = this.quality.fogNear; this.scene.fog.far = this.quality.fogFar;
-    this.camera.far = this.quality.fogFar + 40; // nothing past the fog is visible: don't draw it
-    this.lastCell = null;
-    this.setScale(this.quality.scale);
+  resize() {
+    this.renderer.setPixelRatio(this.scale); this.renderer.setSize(innerWidth, innerHeight, false);
+    this.post?.setSize(innerWidth, innerHeight, this.scale);
+    this.camera.aspect = innerWidth / innerHeight; this.camera.updateProjectionMatrix();
   }
+
+  // `level` is the player's choice; Auto plays at High and steps down (see stepDown) if the computer struggles.
+  setQuality(level) {
+    this.level = QUALITY[level] ? level : 'auto';
+    this.applyTier(this.level === 'auto' ? 'high' : this.level);
+  }
+  applyTier(tier) {
+    const q = this.quality = QUALITY[tier], before = this.tier;
+    this.tier = tier;
+    this.scene.fog.near = q.fogNear; this.scene.fog.far = q.fogFar;
+    this.camera.far = q.fogFar + 40; // nothing past the fog is visible: don't draw it
+    this.lastCell = null;
+    // Shadows, water, surface detail and the final image pass by level. Turning shadows on or off rebuilds shaders.
+    const shadows = q.shadows > 0;
+    if (shadows !== this.renderer.shadowMap.enabled || before !== tier) {
+      this.renderer.shadowMap.enabled = shadows; this.sun.castShadow = shadows;
+      if (shadows) { this.sun.shadow.mapSize.set(q.shadows, q.shadows); this.sun.shadow.map?.dispose(); this.sun.shadow.map = null; }
+      this.scene.traverse(o => { if (o.material) for (const m of [o.material].flat()) m.needsUpdate = true; });
+    }
+    if (shadows) { const c = this.sun.shadow.camera, r = q.shadowRange; Object.assign(c, { left: -r, right: r, top: r, bottom: -r, near: 1, far: 500 }); c.updateProjectionMatrix(); }
+    this.water.material = q.water ? this.waterMaterial : this.plainWater;
+    WORLD.uDetail.value = q.detail ? 1 : 0;
+    if (q.post && this.post?.samples !== q.msaa) { this.post?.composer.dispose(); this.post = new Post(this.renderer, this.scene, this.camera, q.msaa); this.post.samples = q.msaa; }
+    // Low keeps the plain fog: no sunlit haze or valley mist.
+    for (const m of [this.terrainMaterial, this.nodeMaterial, this.waterMaterial, this.grass.material]) {
+      const simple = tier === 'low';
+      if (!!m.defines.SIMPLE !== simple) { if (simple) m.defines.SIMPLE = 1; else delete m.defines.SIMPLE; m.needsUpdate = true; }
+    }
+    this.heroKit.setQuality(q);
+    // Trees and rocks change shape with the level: rebuild the ones about you.
+    if (this.treeStyle !== q.trees) { this.treeStyle = q.trees; this.nodeGeometry = nodeGeometries(q.trees); for (const chunk of this.chunks.values()) if (chunk.hasObjects) this.dropObjects(chunk); }
+    this.setScale(tier === 'ultra' ? Math.min(devicePixelRatio, q.scale) : q.scale);
+    this.resize();
+  }
+  // Auto graphics found even the lowest resolution too slow: a simpler level. Returns false at the bottom.
+  stepDown() { const next = STEP_DOWN[this.tier]; if (!next || this.level !== 'auto') return false; this.applyTier(next); return true; }
   // Render resolution as a fraction of the screen's (capped at 1:1 CSS pixels).
   setScale(scale) {
     if (Math.abs(scale - this.scale) < .01) return;
@@ -188,7 +224,7 @@ export class WorldView {
       (o.material.isMeshBasicMaterial ? glow : lit).push(g);
     });
     group.clear();
-    if (lit.length) group.add(new THREE.Mesh(mergeGeometries(lit), this.nodeMaterial));
+    if (lit.length) { const m = new THREE.Mesh(mergeGeometries(lit), this.nodeMaterial); m.castShadow = m.receiveShadow = true; group.add(m); }
     if (glow.length) group.add(new THREE.Mesh(mergeGeometries(glow), this.glowMaterial));
     group.updateMatrix(); group.updateMatrixWorld(true);
     group.traverse(o => { o.matrixAutoUpdate = false; });
@@ -369,6 +405,7 @@ export class WorldView {
 
   buildChunk(cx, cz, step = 1) {
     const key = `${cx},${cz}`, mesh = new THREE.Mesh(this.terrainGeometry(cx, cz, step), this.terrainMaterial);
+    mesh.receiveShadow = mesh.castShadow = true;
     mesh.matrixAutoUpdate = false;
     this.scene.add(mesh);
     const chunk = { key, cx, cz, mesh, step, nodes: [], instanced: [], hasObjects: false };
@@ -383,6 +420,7 @@ export class WorldView {
     const q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0), zero = new THREE.Matrix4().makeScale(0, 0, 0);
     for (const [type, nodes] of Object.entries(byType)) {
       const mesh = new THREE.InstancedMesh(this.nodeGeometry[type], this.nodeMaterial, nodes.length);
+      mesh.castShadow = mesh.receiveShadow = true;
       mesh.matrixAutoUpdate = false; mesh.userData.small = !!NODES[type].herb || type === 'bush' || type === 'rock' || type === 'nest';
       mesh.visible = !mesh.userData.small || chunk.d <= this.quality.small;
       nodes.forEach((n, i) => {
@@ -482,10 +520,12 @@ export class WorldView {
       if (!hero) return;
       const moved = Math.hypot(e.x - (m.userData.lx ?? e.x), e.z - (m.userData.lz ?? e.z)) > .002;
       m.userData.lx = e.x; m.userData.lz = e.z;
-      hero.update(dt, now, { moving: moved, ...extra });
+      hero.update(dt, now, { moving: moved, ground: this.groundFn, ...extra });
     };
+    // Quest givers watch you when you come near.
+    const you = this.player.position, watch = e => Math.hypot(e.x - you.x, e.z - you.z) < 14 ? { x: you.x, y: you.y + 1.6, z: you.z } : null;
     this.sync('allies', allies, a => a.ally === 'witch' ? this.witch(a.cls) : a.ally === 'fox' ? this.familiar('fox') : (() => { const s = ALLIES[a.ally]; return this.creature(a.ally === 'beast' ? 'quad' : 'biped', s.size, s.color, a.ally === 'titan' ? '#7dffd8' : '#9a6bff', { horns: true }); })(), (m, a) => { this.pose(m, a, a.riding ? 0 : a.walk, now); animate(m, a, { mounted: !!a.riding, flying: a.riding && a.y > this.world.ground(a.x, a.z) + 3 }); });
-    this.sync('elders', elders, e => this.witch(e.cls, 1.05, ELDER_LOOK, { revealing: true }), (m, e) => { this.pose(m, e, 0, now); animate(m, e); });
+    this.sync('elders', elders, e => this.witch(e.cls, 1.05, ELDER_LOOK, { revealing: true }), (m, e) => { this.pose(m, e, 0, now); animate(m, e, { look: watch(e) }); });
     this.sync('boss', boss ? [boss] : [], () => this.boss(), (m, b) => { this.pose(m, b, b.walk, now); m.userData.ward.visible = b.warded; m.userData.ward.rotation.y = now; });
     this.sync('buildings', buildings, b => { const g = this.building(b.type); g.position.set(b.x, b.y, b.z); g.rotation.y = b.rot ?? 0; return this.bake(g); }, () => {});
     this.sync('projectiles', projectiles, p => new THREE.Mesh(this.ball, this.mat(p.color, true)), (m, p) => m.position.set(p.x, p.y, p.z));
@@ -515,7 +555,7 @@ export class WorldView {
       const hero = m.userData.hero, dt = Math.min(.1, now - (m.userData.t ?? now));
       m.userData.t = now;
       if (r.look !== m.userData.look) { m.userData.look = r.look; hero.setLook(decodeLook(r.look)); }
-      hero.update(dt, now, { moving: r.moving, swing: r.swing, mounted: r.mounted, flying: r.mounted && r.y > this.world.ground(r.x, r.z) + 3 });
+      hero.update(dt, now, { moving: r.moving, swing: r.swing, mounted: r.mounted, flying: r.mounted && r.y > this.world.ground(r.x, r.z) + 3, ground: this.groundFn });
       m.visible = r.hp > 0;
     });
   }
@@ -542,7 +582,9 @@ export class WorldView {
     const w = this.player;
     w.position.set(player.x, player.y, player.z); w.rotation.y = -player.yaw + Math.PI / 2;
     this.playerHero.setLook(look);
-    this.playerHero.update(dt, now, { moving, sprinting, swing, mounted, flying, glamour });
+    // Standing still, she glances at the camera when it is in front of her.
+    const lookAt = moving || !this.camAt ? null : this.camAt;
+    this.playerHero.update(dt, now, { moving, sprinting, swing, mounted, flying, glamour, ground: this.groundFn, look: lookAt });
     if (this.pet) this.pet.visible = !glamour && (!flying || this.pet.userData.plan === 'bird');
     if (this.pet) {
       const t = this.pet, raven = t.userData.plan === 'bird', tx = player.x - Math.cos(player.yaw + .9) * 1.4, tz = player.z - Math.sin(player.yaw + .9) * 1.4;
@@ -552,24 +594,68 @@ export class WorldView {
       this.pose(t, { x: t.position.x, y: t.position.y, z: t.position.z, yaw: player.yaw }, moving ? now * 6 : 0, now);
     }
 
-    const dist = 5.6, cx = player.x - Math.cos(yaw) * Math.cos(pitch) * dist, cz = player.z - Math.sin(yaw) * Math.cos(pitch) * dist;
+    // The camera rides a little over your right shoulder and follows smoothly, never sinking into the hill.
+    const dist = 5.6, side = .45, sx = -Math.sin(yaw) * side, sz = Math.cos(yaw) * side;
+    const cx = player.x - Math.cos(yaw) * Math.cos(pitch) * dist + sx, cz = player.z - Math.sin(yaw) * Math.cos(pitch) * dist + sz;
     const cy = Math.max(player.y + 1.8 + Math.sin(pitch) * dist, this.world.ground(cx, cz) + .6, .8);
-    this.camera.position.set(cx, cy, cz);
-    this.camera.lookAt(player.x, player.y + 1.6, player.z);
+    const follow = this.camAt && Math.hypot(cx - this.camAt.x, cz - this.camAt.z) < 30 ? 1 - Math.exp(-dt * 14) : 1;
+    this.camAt = (this.camAt ?? new THREE.Vector3(cx, cy, cz)).lerp(new THREE.Vector3(cx, cy, cz), follow);
+    this.camAt.y = Math.max(this.camAt.y, this.world.ground(this.camAt.x, this.camAt.z) + .6);
+    this.camera.position.copy(this.camAt);
+    this.camera.lookAt(player.x + sx, player.y + 1.6, player.z + sz);
 
     // Day/night: dayTime 0..1, 0.25 sunrise, 0.5 noon, 0.75 sunset.
     const { day, dusk, sunDir, horizon } = this.sky.update(this.camera, dayTime, now, dt, player), see = sight ? .5 : 0;
     this.heroKit.setDaylight(Math.max(day, see));
+    const night = 1 - day;
     // The fog fades into the sky's horizon; Gloamsight lifts the darkness a little.
     const fog = horizon.clone().lerp(DAY, see * .3 * (1 - day));
     this.scene.background.copy(fog); this.scene.fog.color.copy(fog);
-    this.sun.intensity = .3 + 2 * day; this.hemi.intensity = .45 + 1.2 * Math.max(day, see);
-    this.hemi.color.set(day > .3 ? '#cfe3f0' : '#6a78c0'); this.hemi.groundColor.set(day > .3 ? '#4a4a32' : '#1e1a30');
-    this.sun.color.set(dusk > .4 ? '#ffb47a' : day > .1 ? '#ffe8c0' : '#9fb0ff');
-    // The light comes from the sun by day and from the moon by night.
-    const light = day > .05 ? sunDir : sunDir.clone().negate();
-    this.sun.position.set(player.x + light.x * 100, player.y + Math.abs(light.y) * 100 + 20, player.z + light.z * 100);
-    this.sun.target.position.set(player.x, player.y, player.z);
+    // Light levels in physical proportion (sun far brighter than skylight, moonlight dim and cool); the exposure
+    // then adapts slowly, as eyes do, so night is dark but readable and noon isn't blown out.
+    this.sun.intensity = 2.7 * day + .5 * night; this.hemi.intensity = .25 + .8 * Math.max(day, see * .6);
+    this.hemi.color.set(day > .3 ? '#cfe0f2' : '#5a68b0'); this.hemi.groundColor.set(day > .3 ? '#4a4632' : '#14121e');
+    this.sun.color.set(dusk > .4 ? '#ffb07a' : day > .1 ? '#fff0d8' : '#a8b8ff');
+    const targetExposure = THREE.MathUtils.lerp(1.5, .86, day) + dusk * .12;
+    this.exposure += (targetExposure - this.exposure) * Math.min(1, dt * .7);
+    this.renderer.toneMappingExposure = this.exposure;
+    // The light comes from the sun by day and from the moon by night. Its shadow box follows you, snapped to
+    // whole shadow-map texels in the light's own frame so shadow edges don't crawl as you walk.
+    const light = (day > .05 ? sunDir : sunDir.clone().negate()).clone(); light.y = Math.abs(light.y) + .15; light.normalize();
+    const centre = new THREE.Vector3(player.x, player.y, player.z);
+    if (this.sun.castShadow) {
+      const texel = 2 * this.quality.shadowRange / this.sun.shadow.mapSize.x, right = new THREE.Vector3(0, 1, 0).cross(light).normalize(), up = light.clone().cross(right);
+      const snap = v => Math.round(v / texel) * texel, a = snap(centre.dot(right)), b = snap(centre.dot(up)), c = centre.dot(light);
+      centre.copy(right.multiplyScalar(a)).addScaledVector(up, b).addScaledVector(light, c);
+    }
+    this.sun.target.position.copy(centre);
+    this.sun.position.copy(centre).addScaledVector(light, 250);
+    // Shared world shader values: time, sun, haze and wind (gusting now and then).
+    WORLD.uTime.value = now; WORLD.uSunDir.value.copy(light);
+    WORLD.uSunGlow.value.set(dusk > .3 ? '#ff9a60' : day > .2 ? '#fff0d0' : '#8090c0');
+    WORLD.uMist.value = .04 + .22 * night + .2 * dusk;
+    WORLD.uWind.value = .7 + .5 * Math.max(0, Math.sin(now * .13) * Math.sin(now * .31));
+    if (this.water.material === this.waterMaterial) {
+      const u = this.waterMaterial.uniforms;
+      u.uZenith.value.copy(this.sky.uniforms.uZenith.value); u.uHorizon.value.copy(this.sky.uniforms.uHorizon.value);
+      u.uSunColor.value.copy(this.sun.color).multiplyScalar(day > .05 ? this.sun.intensity * .5 : this.sun.intensity * .3);
+    }
+    this.grass.update(player.x, player.z, this.quality.grass);
+    // Only chunks the shadow box reaches cast shadows: whole chunks of trees outside it would cost for nothing.
+    if (this.sun.castShadow) {
+      const reach = this.quality.shadowRange + CHUNK * .75;
+      for (const chunk of this.chunks.values()) {
+        const near = Math.abs((chunk.cx + .5) * CHUNK - player.x) < reach && Math.abs((chunk.cz + .5) * CHUNK - player.z) < reach;
+        chunk.mesh.castShadow = near; for (const m of chunk.instanced) m.castShadow = near;
+      }
+      // Medium updates the shadows every other frame.
+      this.renderer.shadowMap.autoUpdate = false;
+      this.shadowTick = ((this.shadowTick ?? 0) + 1) % (this.quality.shadowEvery ?? 1);
+      if (this.shadowTick === 0) this.renderer.shadowMap.needsUpdate = true;
+    }
+    this.beacon.update(this.camera, now, this.bossDefeated);
+    // Heroes lit by the sky itself on High and up.
+    if (this.quality.ibl) this.heroKit.setEnvironment(this.skyLight.update(dt, this.sky.uniforms, new THREE.Color(this.hemi.groundColor).multiplyScalar(this.hemi.intensity * .35), light, new THREE.Color(this.sun.color).multiplyScalar(this.sun.intensity * .4)));
 
     const near = [...lights].sort((f, g) => Math.hypot(f.x - player.x, f.z - player.z) - Math.hypot(g.x - player.x, g.z - player.z));
     const dark = 1 - day;
@@ -587,7 +673,7 @@ export class WorldView {
       if (e.t > .6) { this.scene.remove(e.m); e.m.geometry.dispose(); e.m.material.dispose(); return false; }
       return true;
     });
-    this.renderer.render(this.scene, this.camera);
+    if (this.quality.post && this.post) this.post.render(night); else this.renderer.render(this.scene, this.camera);
   }
 }
 
@@ -606,7 +692,10 @@ export class HeroPreview {
     const rim = new THREE.DirectionalLight('#c89aff', 2.2); rim.position.set(-1, 3, -4);
     this.scene.add(new THREE.HemisphereLight('#d8d0ff', '#2a1e30', .8), key, fill, rim);
     const pmrem = new THREE.PMREMGenerator(this.renderer);
-    this.kit = new HeroKit(pmrem.fromScene(new RoomEnvironment(), .04).texture);
+    // The studio light reflects in everything here, with every surface detail: it is one hero, close up.
+    const studio = pmrem.fromScene(new RoomEnvironment(), .04).texture;
+    this.kit = new HeroKit(studio);
+    this.kit.setQuality({ ibl: true, detail: true, post: true }); this.kit.setEnvironment(studio);
     pmrem.dispose();
     const floor = new THREE.Mesh(new THREE.CircleGeometry(1.1, 40), new THREE.MeshBasicMaterial({ color: '#9a6bff', transparent: true, opacity: .12 }));
     floor.rotation.x = -Math.PI / 2; this.scene.add(floor);
