@@ -12,8 +12,11 @@ try{
  const errors=[];
  async function witch(name,cls){
   const page=await (await browser.newContext({viewport:{width:1000,height:700}})).newPage();
+  page.setDefaultTimeout(60000);
   page.on('pageerror',e=>errors.push(`${name}: ${e.message}`));
-  await page.goto(origin+'/');await page.waitForTimeout(800);
+  // Low graphics: this tests the network, and both games share the machine's CPU.
+  await page.addInitScript(()=>{try{localStorage.setItem('coven-gfx','low');localStorage.setItem('coven-music','0');}catch{}});
+  await page.goto(origin+'/',{waitUntil:'domcontentloaded'});await page.waitForFunction(()=>!!window.__coven);await page.waitForTimeout(800);
   await page.check('#mp-enabled');
   await page.fill('#mp-name',name);await page.fill('#mp-coven','Thornmoot');await page.fill('#mp-world','test');
   assert.equal(await page.inputValue('#mp-server'),origin,'Server defaults to the page host');

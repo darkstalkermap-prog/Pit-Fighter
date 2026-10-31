@@ -20,11 +20,17 @@ let browser;
 try{
  browser=await chromium.launch({headless:true,...(process.env.CHROMIUM_PATH?{executablePath:process.env.CHROMIUM_PATH}:{}),args:['--no-sandbox','--use-angle=swiftshader','--enable-unsafe-swiftshader']});
  const errors=[];
- async function witch(name,cls,mode,code=''){
-  const page=await (await browser.newContext({viewport:{width:1000,height:700}})).newPage();
+ // Each player's page, on Low graphics: this tests the network, and three games share the machine's CPU.
+ async function open(viewport={width:1000,height:700}){
+  const page=await (await browser.newContext({viewport})).newPage();
   page.setDefaultTimeout(60000);
+  await page.addInitScript(()=>{try{localStorage.setItem('coven-gfx','low');localStorage.setItem('coven-music','0');}catch{}});
+  await page.goto(url,{waitUntil:'domcontentloaded'});await page.waitForFunction(()=>!!window.__coven,null,poll);
+  return page;
+ }
+ async function witch(name,cls,mode,code=''){
+  const page=await open();
   page.on('pageerror',e=>errors.push(`${name}: ${e.message}`));
-  await page.goto(url);await page.waitForFunction(()=>!!window.__coven,null,poll);
   await page.check('#mp-enabled');await page.check(`[name="mp-mode"][value="${mode}"]`);
   await page.fill('#mp-name',name);await page.fill('#mp-coven','Moonmoot');
   if(code)await page.fill('#mp-code',code);
@@ -54,8 +60,7 @@ try{
  await host.waitForFunction(id=>!!__coven.state.harvested[id],node,poll);
 
  // A wrong code is reported, not hung on.
- const lost=await (await browser.newContext()).newPage();
- await lost.goto(url);await lost.waitForFunction(()=>!!window.__coven,null,poll);
+ const lost=await open({width:800,height:600});
  await lost.check('#mp-enabled');await lost.check('[name="mp-mode"][value="join"]');await lost.fill('#mp-code','ZZZZ');
  await lost.click('#play');await lost.click('[data-class="wild"]');
  await lost.waitForFunction(()=>/No game found with code ZZZZ/.test(document.querySelector('#toast').textContent),null,poll);
