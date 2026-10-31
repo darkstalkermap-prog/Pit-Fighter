@@ -301,7 +301,7 @@ function huntingGround(region, level) {
   let best = h, bd = Infinity;
   for (let t = 0; t <= 1; t += .02) {
     const x = h.x * (1 - t * .95), z = h.z * (1 - t * .95), d = Math.abs(W.danger(x, z) - level);
-    if (W.ground(x, z) > 1 && d < bd && !C.humanVillages.some(v => Math.hypot(v.x - x, v.z - z) < 120)) { bd = d; best = { x, z }; }
+    if (W.ground(x, z) > 1 && d < bd && !C.humanVillages.some(v => Math.hypot(v.x - x, v.z - z) < 120) && !LAIRS.some(l => Math.hypot(l.x - x, l.z - z) < 300)) { bd = d; best = { x, z }; }
   }
   return best;
 }
