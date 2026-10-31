@@ -98,7 +98,7 @@ test('gathering trains skills and familiars change yields', () => {
   assert.deepEqual(R.gatherYield(p, 'oak'), { wood: 1 });
   assert.ok(p.skills.gathering > 0);
   assert.deepEqual(R.gatherYield(p, 'moonstone'), {}, 'moonstone needs a pick');
-  R.addItem(p, 'pick');
+  R.addItem(p, 'pick'); R.equip(p, 'pick');
   assert.deepEqual(R.gatherYield(p, 'moonstone'), { moonstone: 1 });
   assert.deepEqual(R.gatherYield(player('bloom'), 'sunpetal'), { sunpetal: 2 }, 'the hare doubles herbs');
   assert.deepEqual(R.lootFor(p, { rawMeat: 1, hide: 1 }), { rawMeat: 2, hide: 2 }, 'the fox adds meat and hide');
@@ -247,9 +247,11 @@ test('trading: sell witch goods for silver, buy human goods', () => {
   assert.equal(R.tradeBlocker(p, 'ironHatchet', false), 'Needs 40 silver');
   assert.equal(R.trade(p, 'woolCloak', false), true);
   assert.equal(R.count(p, 'silver'), 5);
-  assert.ok(R.warm(p), 'a wool cloak keeps out the cold');
+  assert.ok(!R.warm(p), 'a cloak in the pack does nothing');
+  R.equip(p, 'woolCloak');
+  assert.ok(R.warm(p), 'a worn wool cloak keeps out the cold');
   assert.equal(p.stats.trades, 11);
-  R.addItem(p, 'ironHatchet');
+  R.addItem(p, 'ironHatchet'); R.equip(p, 'ironHatchet');
   assert.deepEqual(R.gatherYield(p, 'oak'), { wood: 5 });
 });
 
@@ -266,7 +268,7 @@ test('souls need an empty Soul Jar; the Titan needs four witches and three souls
   assert.match(R.castBlocker(p, 'titan', 4), /Human Soul/);
   R.addItem(p, 'humanSoul', 2); R.addItem(p, 'heartSigil');
   assert.equal(R.castBlocker(p, 'titan', 4), null);
-  assert.ok(R.knownSpells(p).includes('glamour') && R.knownSpells(p).at(-1) === 'titan');
+  assert.ok(R.knownSpells(p).includes('glamour') && R.knownSpells(p).includes('titan'));
 });
 
 test('glamour needs dust; calm villagers do not flee, alarmed ones do', () => {
@@ -285,4 +287,78 @@ test('glamour needs dust; calm villagers do not flee, alarmed ones do', () => {
   hunter.angry = true;
   for (let i = 0; i < 180; i++) updateCreature(hunter, you, flat, 1 / 60, false, d => { bitten += d; });
   assert.ok(bitten > 0, 'alarmed hunters attack');
+});
+
+test('equipment: only worn gear counts; two tool slots; armor reduces damage', () => {
+  const p = player('wild');
+  for (const id of ['hatchet', 'pick', 'ironHatchet', 'spear', 'staff', 'hideJerkin', 'boneHelm', 'moonAmulet']) R.addItem(p, id);
+  assert.deepEqual(R.gatherYield(p, 'oak'), { wood: 1 }, 'carried, not equipped');
+  assert.equal(R.equip(p, 'hatchet'), 'tool1');
+  assert.equal(R.equip(p, 'pick'), 'tool2');
+  assert.deepEqual(R.gatherYield(p, 'oak'), { wood: 3 });
+  assert.deepEqual(R.gatherYield(p, 'rock'), { stone: 3 });
+  assert.equal(R.equip(p, 'ironHatchet'), 'tool1', 'both tool slots full: the first is swapped');
+  assert.equal(R.count(p, 'hatchet'), 1, 'the old hatchet goes back to the pack');
+  assert.deepEqual(R.gatherYield(p, 'oak'), { wood: 5 });
+  assert.equal(R.weapon(p).damage, 18 * 1.3, 'no weapon: strike with the best tool (Wild Witch melee x1.3)');
+  R.equip(p, 'spear');
+  assert.equal(R.weapon(p).name, 'spear');
+  R.equip(p, 'staff');
+  assert.equal(R.count(p, 'spear'), 1, 'one weapon at a time');
+  assert.ok(R.spellPower(p) > R.spellPower({ ...p, equip: {} }));
+  const mana = p.maxMana;
+  R.equip(p, 'moonAmulet');
+  assert.equal(p.maxMana, mana + 25);
+  R.unequip(p, 'amulet');
+  assert.equal(p.maxMana, mana);
+  R.equip(p, 'hideJerkin'); R.equip(p, 'boneHelm');
+  assert.equal(R.armor(p), 19);
+  p.hp = 100; R.damagePlayer(p, 69);
+  assert.equal(Math.round(100 - p.hp), 50, 'armor 19 turns 69 damage into 50');
+});
+
+test('new crafts equip themselves when their slot is free', () => {
+  const p = player('hex');
+  Object.assign(p.inv, { hide: 4, fiber: 4 });
+  R.craft(p, 'hideCap');
+  assert.equal(R.autoEquip(p, 'hideCap'), 'head');
+  R.addItem(p, 'boneHelm');
+  assert.equal(R.autoEquip(p, 'boneHelm'), false, 'never replaces worn gear on its own');
+});
+
+test('old saves put on the best gear they carry', () => {
+  const p = player('bog');
+  delete p.equip;
+  Object.assign(p.inv, { hatchet: 1, ironHatchet: 1, pick: 1, cloak: 1, spear: 1 });
+  R.ensureEquip(p);
+  assert.deepEqual(Object.values(p.equip).sort(), ['cloak', 'ironHatchet', 'pick', 'spear']);
+  assert.equal(R.count(p, 'hatchet'), 1);
+});
+
+test('the broom: 30% faster ridden; the two-witch Skyward Charm makes it fly for good', () => {
+  const p = player('bloom');
+  assert.match(R.mountBlocker(p), /Mount slot/);
+  Object.assign(p.inv, { wood: 8, fiber: 6, feather: 4 });
+  assert.equal(R.craft(p, 'broom'), 1);
+  R.equip(p, 'broom');
+  assert.equal(R.mountBlocker(p, { swimming: true }), 'You cannot mount while swimming');
+  assert.equal(R.mountBlocker(p), null);
+  const walk = R.moveSpeedFactor(p);
+  p.mounted = true;
+  assert.ok(Math.abs(R.moveSpeedFactor(p) / walk - 1.3) < 1e-9);
+  assert.match(R.flightBlocker(p), /Skyward Charm/, 'a plain broom only skims the ground');
+  p.skills.spellcraft = 25 * 2 ** 2; p.mana = p.maxMana;
+  assert.equal(R.castBlocker(p, 'skyward', 1), 'Needs a coven of 2');
+  assert.match(R.castBlocker(p, 'skyward', 2), /Feather/);
+  R.addItem(p, 'feather', 4);
+  assert.equal(R.castBlocker(p, 'skyward', 2), null);
+  R.payCast(p, 'skyward');
+  assert.equal(R.enchantBroom(p), true);
+  assert.equal(p.equip.mount, 'skyBroom');
+  assert.equal(R.flightBlocker(p), null, 'it now flies, with no second witch needed');
+  p.cooldowns = {};
+  assert.equal(R.castBlocker(p, 'skyward', 2), 'Your broom already flies');
+  R.unequip(p, 'mount');
+  assert.equal(p.mounted, false, 'taking the broom off dismounts');
+  assert.equal(R.count(p, 'skyBroom'), 1);
 });

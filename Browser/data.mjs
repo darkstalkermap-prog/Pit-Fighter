@@ -48,9 +48,10 @@ export const SPELLS = {
   guardian: { name: 'Call the Guardian', kind: 'summon', coven: 3, skill: 5, mana: 50, cooldown: 60, reagent: { moonDust: 1, covenInk: 1 }, summon: 'guardian', duration: 90, color: '#c9c3b8' },
   grandrite: { name: 'The Grand Rite', kind: 'rite', coven: 4, skill: 7, mana: 80, cooldown: 30, reagent: { heartSigil: 1 }, damage: 400, radius: 25, breakWard: 25, color: '#ff3c6e' },
   glamour: { name: 'Glamour', kind: 'glamour', coven: 1, skill: 1, mana: 25, cooldown: 10, reagent: { glamourDust: 1 }, duration: 150, color: '#f0e0ff' },
+  skyward: { name: 'Skyward Charm', kind: 'enchant', coven: 2, skill: 2, mana: 40, cooldown: 10, reagent: { feather: 4 }, color: '#bfe8ff' },
   titan: { name: 'Summon the Wyrd Titan', kind: 'summon', coven: 4, skill: 8, mana: 100, cooldown: 180, reagent: { humanSoul: 3, heartSigil: 1 }, summon: 'titan', duration: 90, color: '#7dffd8' },
 };
-export const COVEN_SPELLS = ['summonbeast', 'binding', 'storm', 'guardian', 'grandrite', 'titan'];
+export const COVEN_SPELLS = ['skyward', 'summonbeast', 'binding', 'storm', 'guardian', 'grandrite', 'titan'];
 
 export const ITEMS = {
   wood: { name: 'Wood' }, stone: { name: 'Stone' }, fiber: { name: 'Fiber' }, moonstone: { name: 'Moonstone' },
@@ -64,8 +65,17 @@ export const ITEMS = {
   nightshade: { name: 'Nightshade', herb: 'darkforest' }, gravemoss: { name: 'Gravemoss', herb: 'darkforest' }, shadowcap: { name: 'Shadowcap', herb: 'darkforest' },
   sunpetal: { name: 'Sunpetal', herb: 'meadow' }, honeyclover: { name: 'Honeyclover', herb: 'meadow' }, dewbell: { name: 'Dewbell', herb: 'meadow' },
   wolfsbane: { name: 'Wolfsbane', herb: 'forest' }, elderberry: { name: 'Elderberry', herb: 'forest' }, fernheart: { name: 'Fernheart', herb: 'forest' },
-  hatchet: { name: 'Stone Hatchet', gear: true }, pick: { name: 'Stone Pick', gear: true }, spear: { name: 'Hunting Spear', gear: true },
-  staff: { name: 'Witch\'s Staff', gear: true }, cloak: { name: 'Hide Cloak', gear: true },
+  // Equipment: `slot` is where it is worn. Tools gather (chop/mine: yield per strike) and double as weapons.
+  hatchet: { name: 'Stone Hatchet', slot: 'tool', chop: 3, damage: 13 }, pick: { name: 'Stone Pick', slot: 'tool', mine: 3, damage: 9 },
+  spear: { name: 'Hunting Spear', slot: 'weapon', damage: 22, reach: 3.6 },
+  staff: { name: 'Witch\'s Staff', slot: 'weapon', damage: 8, power: 1.15 },
+  cloak: { name: 'Hide Cloak', slot: 'cloak', armor: 2, warm: true },
+  hideCap: { name: 'Hide Cap', slot: 'head', armor: 4 }, boneHelm: { name: 'Bone Helm', slot: 'head', armor: 9 },
+  hideJerkin: { name: 'Hide Jerkin', slot: 'chest', armor: 10 }, chitinMail: { name: 'Chitin Mail', slot: 'chest', armor: 20 },
+  ironMail: { name: 'Iron Mail', slot: 'chest', armor: 26 },
+  moonAmulet: { name: 'Moonstone Amulet', slot: 'amulet', mana: 25 },
+  broom: { name: 'Witch\'s Broom', slot: 'mount', speed: 1.3 },
+  skyBroom: { name: 'Skyward Broom', slot: 'mount', speed: 1.3, flies: true },
   bandage: { name: 'Fiber Bandage', heal: 25 },
   healing: { name: 'Healing Draught', heal: 70 },
   manaTonic: { name: 'Mana Tonic', mana: 70 },
@@ -77,12 +87,16 @@ export const ITEMS = {
   glamourDust: { name: 'Glamour Dust', reagent: true }, soulJar: { name: 'Soul Jar' }, humanSoul: { name: 'Human Soul', reagent: true },
   silver: { name: 'Silver' },
   bread: { name: 'Bread', food: 30, water: 5 }, ale: { name: 'Ale', water: 40, food: 5 },
-  ironHatchet: { name: 'Iron Hatchet', gear: true }, ironPick: { name: 'Iron Pick', gear: true }, woolCloak: { name: 'Wool Cloak', gear: true },
+  ironHatchet: { name: 'Iron Hatchet', slot: 'tool', chop: 5, damage: 18 }, ironPick: { name: 'Iron Pick', slot: 'tool', mine: 5, moonstone: 2, damage: 12 },
+  woolCloak: { name: 'Wool Cloak', slot: 'cloak', armor: 3, warm: true },
 };
 
 // What the human merchants pay for witch goods (in silver), and what they sell.
 export const SELL = { hide: 3, bone: 1, feather: 1, honeycomb: 3, cookedMeat: 2, moonstone: 6, healing: 10, manaTonic: 10, swiftfoot: 8, ironbark: 8, gloamsight: 8, venomCoat: 8, mireEssence: 12, gloamEssence: 12, bloomEssence: 12, wildEssence: 12, mirecap: 2, bogmyrtle: 2, leechweed: 2, nightshade: 2, gravemoss: 2, shadowcap: 2, sunpetal: 2, honeyclover: 2, dewbell: 2, wolfsbane: 2, elderberry: 2, fernheart: 2 };
-export const BUY = { bread: 4, ale: 3, ironHatchet: 40, ironPick: 45, woolCloak: 25, bandage: 5 };
+export const BUY = { bread: 4, ale: 3, ironHatchet: 40, ironPick: 45, woolCloak: 25, ironMail: 70, bandage: 5 };
+
+// Equipment slots, in display order. Two tool slots so a hatchet and a pick can both be carried ready.
+export const SLOTS = { head: 'Head', chest: 'Chest', cloak: 'Cloak', amulet: 'Amulet', weapon: 'Weapon', tool1: 'Tool', tool2: 'Tool', mount: 'Mount' };
 
 // station: null (by hand), cauldron or altar (built in your village). makes: how many one craft yields.
 export const RECIPES = [
@@ -92,6 +106,12 @@ export const RECIPES = [
   { id: 'staff', needs: { wood: 6, feather: 3, fiber: 4 } },
   { id: 'cloak', needs: { hide: 4, fiber: 6 } },
   { id: 'bandage', needs: { fiber: 5 } },
+  { id: 'hideCap', needs: { hide: 2, fiber: 2 } },
+  { id: 'hideJerkin', needs: { hide: 6, fiber: 4 } },
+  { id: 'boneHelm', needs: { bone: 5, hide: 1 } },
+  { id: 'chitinMail', needs: { chitin: 6, silk: 2, hide: 2 } },
+  { id: 'moonAmulet', needs: { moonstone: 2, silk: 1 } },
+  { id: 'broom', needs: { wood: 8, fiber: 6, feather: 4 } },
   { id: 'healing', station: 'cauldron', needs: { sunpetal: 2, honeyclover: 1 } },
   { id: 'manaTonic', station: 'cauldron', needs: { dewbell: 2, mirecap: 1 } },
   { id: 'swiftfoot', station: 'cauldron', needs: { fernheart: 2, honeycomb: 1 } },

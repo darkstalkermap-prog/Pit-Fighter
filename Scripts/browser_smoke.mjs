@@ -35,7 +35,7 @@ try{
  await page.keyboard.down('KeyW');
  await until(b=>Math.hypot(__coven.state.player.x-b.x,__coven.state.player.z-b.z)>1,before);
  await page.keyboard.up('KeyW');
- assert.equal(await page.locator('#spells .spell').count(),9,'Spell bar shows class and coven spells');
+ assert.equal(await page.locator('#spells .spell').count(),10,'Spell bar shows class and coven spells');
  assert.match(await page.locator('#prompt').textContent()+await page.locator('#questTitle').textContent(),/Elder/,'Elder quest is shown');
 
  // Found a village and brew at the cauldron through the real UI.
@@ -60,6 +60,36 @@ try{
  assert.equal(await page.evaluate(()=>__coven.state.player.inv.covenInk),2,'Coven spell needs a coven');
  await page.evaluate(()=>{const p=__coven.state.player;p.coven.push('hex');__coven.allies.push({id:999,ally:'witch',cls:'hex',x:p.x+2,z:p.z,y:p.y,yaw:0,life:Infinity,cooldown:0,walk:0});__coven.cast(3);});
  assert.equal(await page.evaluate(()=>__coven.state.player.inv.covenInk),1,'Binding Circle cast with two witches');
+
+ // Inventory: equip armor and a broom from the pack.
+ await page.evaluate(()=>{Object.assign(__coven.state.player.inv,{hideJerkin:1,broom:1});});
+ await page.keyboard.press('KeyI');
+ await page.locator('[data-equip="hideJerkin"]').click();
+ await page.locator('[data-equip="broom"]').click();
+ assert.equal(await page.locator('.slot:not(.empty)').count()>=2,true,'Slots show worn gear');
+ assert.deepEqual(await page.evaluate(()=>[__coven.state.player.equip.chest,__coven.state.player.equip.mount]),['hideJerkin','broom']);
+ await shot(page,'inventory');
+ await page.keyboard.press('Escape');
+
+ // The broom: ride it; it won't fly until the Hex sister helps cast the Skyward Charm [0]. Then it flies alone.
+ await page.evaluate(()=>{const p=__coven.state.player;p.mana=p.maxMana=999;p.inv.feather=4;p.cooldowns={};});
+ await page.keyboard.press('KeyF');
+ await until(()=>__coven.state.player.mounted);
+ assert.equal(await page.evaluate(()=>__coven.state.player.flying),false);
+ await page.keyboard.press('Digit0');
+ await until(()=>__coven.state.player.equip.mount==='skyBroom');
+ const sister=await page.evaluate(()=>{const i=__coven.allies.findIndex(a=>a.cls==='hex');return __coven.allies.splice(i,1)[0];});
+ const y0=await page.evaluate(()=>__coven.state.player.y);
+ await page.keyboard.down('Space');
+ await until(y=>__coven.state.player.flying&&__coven.state.player.y>y+8,y0); // flies with no sister near
+ await page.keyboard.up('Space');
+ await shot(page,'flying');
+ await page.keyboard.down('KeyX');
+ await until(()=>!__coven.state.player.flying);
+ await page.keyboard.up('KeyX');
+ await page.evaluate(s=>__coven.allies.push(s),sister);
+ await page.keyboard.press('KeyF');
+ assert.equal(await page.evaluate(()=>__coven.state.player.mounted),false,'Dismounted');
 
  // Human villages: walking in as a witch raises the alarm.
  const goTo=(x,z)=>page.evaluate(([x,z])=>{const p=__coven.state.player;p.x=x;p.z=z;p.y=__coven.world.ground(x,z);},[x,z]);
@@ -120,5 +150,5 @@ try{
  assert.ok(await page.evaluate(()=>__coven.boss.hp<=5600),'Grand Rite deals full damage once the ward breaks');
  await shot(page,'crown');
  assert.deepEqual(errors,[],'No browser errors');
- console.log('PASS: WebGL 2, Pages subpath, class choice, homeland start, walking, spell bar, village building, alchemy, coven gating, human village alarm, glamour and trade, soul capture, Wyrd Titan, hunting and loot, map, boss ward and Grand Rite, no browser errors.');
+ console.log('PASS: WebGL 2, Pages subpath, class choice, homeland start, walking, spell bar, village building, alchemy, coven gating, equipment slots, broom riding, Skyward Charm and flight, human village alarm, glamour and trade, soul capture, Wyrd Titan, hunting and loot, map, boss ward and Grand Rite, no browser errors.');
 }finally{await browser?.close();await new Promise(resolve=>server.close(resolve));}

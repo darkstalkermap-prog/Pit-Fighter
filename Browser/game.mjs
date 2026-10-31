@@ -1,6 +1,6 @@
 import { createWorld, HALF, WORLD_SIZE, NODES, REGIONS, CROWN, HUMAN_VILLAGE } from './world.mjs';
 import { WorldView } from './view.mjs';
-import { CLASSES, SPELLS, ITEMS, RECIPES, BUILDINGS, SKILLS, VILLAGE_RADIUS, SELL, BUY, COVEN_SPELLS } from './data.mjs';
+import { CLASSES, SPELLS, ITEMS, RECIPES, BUILDINGS, SKILLS, VILLAGE_RADIUS, SELL, BUY, COVEN_SPELLS, SLOTS } from './data.mjs';
 import { CREATURE, BESTIARY, BOSS, ELITE_RESPAWN } from './bestiary.mjs';
 import * as R from './rules.mjs';
 import { makeCreature, pickCreature, updateCreature, hurtCreature, makeAlly, updateAlly, ALLIES } from './creatures.mjs';
@@ -8,7 +8,7 @@ import { Net, defaultServer } from './net.mjs';
 
 const SAVE_KEY = 'coven-save-v2', ONLINE_KEY = 'coven-online', DAY_LENGTH = 1200, NODE_RESPAWN = 600, EXPLORE = 64, MAX_CREATURES = 16, COVEN_REACH = 25;
 const REGION_CLASS = { swamp: 'bog', darkforest: 'hex', meadow: 'bloom', forest: 'wild' };
-const SPELL_KEYS = ['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'Digit6', 'Digit7', 'Digit8', 'Digit9'];
+const SPELL_KEYS = ['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'Digit6', 'Digit7', 'Digit8', 'Digit9', 'Digit0'];
 const ALARM = 180, HUMAN_SPAWN = 300, HUMAN_DESPAWN = 450;
 // Cached element lookup (re-queried if the element was replaced).
 const found = new Map();
@@ -41,6 +41,7 @@ let yaw = 0, pitch = .3, swing = 0, swingCooldown = 0, last = 0, accumulator = 0
 
 function begin(s) {
   state = s; buildingsChanged();
+  R.ensureEquip(state.player);
   const p = state.player;
   explored = new Uint8Array(EXPLORE * EXPLORE);
   for (const i of state.explored) explored[i] = 1;
@@ -189,6 +190,21 @@ function villageWalls(x, z, px, pz) {
   return [x, z];
 }
 
+// ---------- the broom ----------
+function toggleMount() {
+  const p = state.player;
+  if (p.mounted) {
+    const high = p.flying && p.y > world.ground(p.x, p.z) + 3;
+    p.mounted = p.flying = false; p.vy = 0;
+    toast(high ? 'You leap from your broom!' : 'You step off your broom.');
+    return;
+  }
+  const blocker = R.mountBlocker(p, { swimming: world.ground(p.x, p.z) < -1.3 });
+  if (blocker) { toast(blocker); return; }
+  p.mounted = true;
+  toast(R.flightBlocker(p) ? 'You mount your broom: 30% faster. Enchant it with the Skyward Charm [0] and it will fly.' : 'You mount your Skyward Broom. Hold Space to fly, X to descend.');
+}
+
 // ---------- interaction ----------
 function interaction() {
   const p = state.player;
@@ -310,6 +326,7 @@ function slain(c, b) {
 function strike() {
   const p = state.player;
   if (swingCooldown > 0 || p.hp <= 0) return;
+  if (p.mounted) { toast('Step off your broom [F] to strike or gather.'); swingCooldown = 1; return; }
   swing = 1; swingCooldown = .55; p.yaw = yaw;
   p.stamina = Math.max(0, p.stamina - 5);
   const w = R.weapon(p), tired = p.stamina < 5 ? .5 : 1;
@@ -318,7 +335,7 @@ function strike() {
   const node = view.nodesNear(p.x, p.z, 5).map(n => ({ n, d: dist(n, p) })).filter(({ n, d }) => d < 2.1 + Math.max(.6, NODES[n.type].radius) * n.s && facing(p, n.x, n.z) > .2).sort((a, b) => a.d - b.d)[0]?.n;
   if (!node) return;
   const before = { ...p.skills }, got = R.gatherYield(p, node.type);
-  if (!Object.keys(got).length) { toast('You need a Stone Pick to mine moonstone.'); return; }
+  if (!Object.keys(got).length) { toast('Equip a pick to mine moonstone.'); return; }
   for (const s of Object.keys(SKILLS)) if (R.skillLevel({ skills: before }, s) < R.skillLevel(p, s)) trained(s, R.skillLevel(p, s));
   toast(Object.entries(got).map(([id, n]) => `+${n} ${ITEMS[id].name}`).join('  '));
   const hp = (state.nodeHp[node.id] ?? NODES[node.type].hp) - 1;
@@ -376,6 +393,7 @@ function cast(index) {
     if (s.summon === 'titan') { p.stats.titans++; toast('Three souls burn. The earth splits, and the Wyrd Titan rises!', true); }
     else toast(`${ALLIES[s.summon].name} answers the coven's call.`);
   }
+  if (s.kind === 'enchant' && R.enchantBroom(p)) { ring(p.x, p.y, p.z, 4, s.color); toast('Two voices bind the wind into the bristles. Your broom is now a Skyward Broom: mount it [F] and hold Space to fly.', true); }
   if (s.kind === 'glamour') { p.effects.glamour = s.duration; p.wasGlamoured = true; ring(p.x, p.y, p.z, 2, s.color); toast('You wear a borrowed human face. Spells or violence will break it.'); if (allies.some(a => a.ally === 'witch' || a.ally === 'fox')) toast('Your companions will wait here until the glamour ends.'); }
   if (s.coven > 1) quests();
 }
@@ -422,31 +440,47 @@ function updatePlayer(dt) {
   const f = (keys.has('KeyW') ? 1 : 0) - (keys.has('KeyS') ? 1 : 0), s = (keys.has('KeyD') ? 1 : 0) - (keys.has('KeyA') ? 1 : 0);
   yaw += ((keys.has('ArrowRight') ? 1 : 0) - (keys.has('ArrowLeft') ? 1 : 0)) * dt * 1.8;
   let mx = Math.cos(yaw) * f - Math.sin(yaw) * s, mz = Math.sin(yaw) * f + Math.cos(yaw) * s;
-  const len = Math.hypot(mx, mz), swimming = world.ground(p.x, p.z) < -1.3;
+  const len = Math.hypot(mx, mz), g0 = world.ground(p.x, p.z), swimming = !p.mounted && g0 < -1.3;
+  const airborne = p.y > Math.max(g0, 0) + 5; // above trees, walls and roofs
   moving = len > 0 && p.hp > 0;
   p.sprinting = moving && (keys.has('ShiftLeft') || keys.has('ShiftRight')) && p.stamina > 1 && !swimming;
   if (moving) {
     mx /= len; mz /= len;
     if (swing <= 0) p.yaw += Math.max(-dt * 12, Math.min(dt * 12, ((Math.atan2(mz, mx) - p.yaw + Math.PI * 3) % (Math.PI * 2)) - Math.PI));
     const speed = (swimming ? 3 : p.sprinting ? 9 : 5) * R.moveSpeedFactor(p);
-    const [cx, cz] = collide(Math.max(-HALF + 20, Math.min(HALF - 20, p.x + mx * speed * dt)), Math.max(-HALF + 20, Math.min(HALF - 20, p.z + mz * speed * dt)));
-    const [nx, nz] = villageWalls(cx, cz, p.x, p.z);
+    let nx = Math.max(-HALF + 20, Math.min(HALF - 20, p.x + mx * speed * dt)), nz = Math.max(-HALF + 20, Math.min(HALF - 20, p.z + mz * speed * dt));
+    if (!airborne) { [nx, nz] = collide(nx, nz); [nx, nz] = villageWalls(nx, nz, p.x, p.z); }
     p.x = nx; p.z = nz;
   }
   const g = world.ground(p.x, p.z);
-  if (g < -1.3) { p.y += (-1.1 - p.y) * Math.min(1, dt * 6); p.vy = 0; p.grounded = false; }
+  if (p.mounted) {
+    // A broom hovers just above land or water. A Skyward Broom also flies: Space climbs, X descends.
+    // Should it lose its lift (the broom taken off mid-air), it lowers you gently to the ground.
+    const floor = Math.max(g, -.6), grounded = R.flightBlocker(p), up = keys.has('Space'), down = keys.has('KeyX');
+    if (!grounded && up) p.flying = true;
+    if (p.flying) {
+      if (!grounded) { p.vy = up ? 9 : down ? -9 : 0; p.liftLost = false; }
+      else { p.vy = -4; if (!p.liftLost) { toast(`Your broom sinks: ${grounded}.`); p.liftLost = true; } }
+      p.y = Math.min(p.y + p.vy * dt, floor + R.FLIGHT_CEILING);
+      if (p.y <= floor + .5) { p.y = floor + .4; p.flying = false; p.vy = 0; }
+    } else { p.y = floor + .4; p.vy = 0; }
+    p.grounded = !p.flying;
+  } else if (g < -1.3) { p.y += (-1.1 - p.y) * Math.min(1, dt * 6); p.vy = 0; p.grounded = false; }
   else {
     p.vy -= 22 * dt; p.y += p.vy * dt;
-    if (p.y <= g) { p.y = g; p.vy = 0; p.grounded = true; } else if (p.y > g + .3) p.grounded = false;
+    if (p.y <= g) {
+      if (p.vy < -16) { R.damagePlayer(p, (-p.vy - 16) * 4); hurtFlash = .4; toast('You hit the ground hard.'); }
+      p.y = g; p.vy = 0; p.grounded = true;
+    } else if (p.y > g + .3) p.grounded = false;
   }
-  if (keys.has('Space') && p.grounded && p.stamina > 8 && p.hp > 0) { p.vy = 7.5; p.grounded = false; p.stamina -= 8; }
+  if (keys.has('Space') && p.grounded && !p.mounted && p.stamina > 8 && p.hp > 0) { p.vy = 7.5; p.grounded = false; p.stamina -= 8; }
 
   const surface = world.surface(p.x, p.z), cold = (surface === 'snow' || surface === 'peaks' && isNight()) && !nearFire(10);
   if (cold && !p.cold && !R.warm(p)) toast('The cold bites. Find a fire or craft a Hide Cloak.');
   p.cold = cold;
-  if (R.tickSurvival(p, dt, { sprinting: p.sprinting, swimming: g < -1.3, cold })) {
+  if (R.tickSurvival(p, dt, { sprinting: p.sprinting, swimming: !p.mounted && g < -1.3, cold })) {
     toast('You have fallen.', true); toast(`You wake at ${p.home.name}.`);
-    R.respawn(p); p.y = world.ground(p.x, p.z);
+    R.respawn(p); p.mounted = p.flying = false; p.y = world.ground(p.x, p.z);
     dropCreatures(c => !near(c, p, 80) || c.remote);
     for (const a of allies) { a.x = p.x + 2; a.z = p.z + 2; a.target = null; }
   }
@@ -471,10 +505,22 @@ function updateCreatures(dt) {
   reportCreatures(dt);
   allies = allies.filter(a => a.life > 0);
   const hiding = glamoured();
-  allies.forEach((a, i) => (hiding && (a.ally === 'witch' || a.ally === 'fox') && near(a, p, 200)) || updateAlly(a, p, hostiles(), world.ground, dt, (target, dmg) => {
+  allies.forEach((a, i) => {
+    // While you ride, coven sisters ride their brooms in formation beside you, on the ground or in the air.
+    a.riding = p.mounted && a.ally === 'witch';
+    if (a.riding) {
+      const side = (i % 2 ? 1 : -1) * (2.5 + i), back = 3, k = Math.min(1, dt * 3);
+      a.x += (p.x - Math.cos(p.yaw) * back - Math.sin(p.yaw) * side - a.x) * k;
+      a.z += (p.z - Math.sin(p.yaw) * back + Math.cos(p.yaw) * side - a.z) * k;
+      a.y += ((p.flying ? p.y : Math.max(world.ground(a.x, a.z), -.6) + .4) - a.y) * k;
+      a.yaw = p.yaw;
+      return;
+    }
+    (hiding && (a.ally === 'witch' || a.ally === 'fox') && near(a, p, 200)) || updateAlly(a, p, hostiles(), world.ground, dt, (target, dmg) => {
     if (ALLIES[a.ally].ranged) bolt(a, target, dmg * (1 + p.level * .05), SPELLS[CLASSES[a.cls].spells[0]].color, {}, false);
     else damage(target, dmg * (1 + p.level * .05), {}, false);
-  }, i));
+  }, i);
+  });
 
   spawnTimer -= dt;
   if (spawnTimer > 0) return;
@@ -567,7 +613,7 @@ function update(dt) {
   if (netTimer <= 0 && net.online) {
     netTimer = .1;
     const p = state.player, r = v => Math.round(v * 100) / 100;
-    const msg = { type: 'state', x: r(p.x), y: r(p.y), z: r(p.z), yaw: r(p.yaw), hp: Math.ceil(p.hp), maxHp: p.maxHp, level: p.level, cls: p.class, moving, swing: r(swing) };
+    const msg = { type: 'state', x: r(p.x), y: r(p.y), z: r(p.z), yaw: r(p.yaw), hp: Math.ceil(p.hp), maxHp: p.maxHp, level: p.level, cls: p.class, moving, swing: r(swing), mounted: !!p.mounted };
     const key = JSON.stringify(msg);
     // Idle witches send nothing new except a once-a-second heartbeat.
     if (key !== lastSent || (heartbeat -= .1) <= 0) { net.send(msg); lastSent = key; heartbeat = 1; }
@@ -589,7 +635,7 @@ function hud() {
   put('#className', 'textContent', CLASSES[p.class].name.toUpperCase());
   put('#xp', 'width', `${Math.round(p.xp / R.xpToNext(p.level) * 1000) / 10}%`);
   const minutes = Math.floor(state.dayTime * 24 * 60), fx = Object.keys(p.effects).filter(e => e !== 'regenRate');
-  put('#clock', 'textContent', `DAY ${state.day} · ${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}${p.cold && !R.warm(p) ? ' · FREEZING' : ''}${p.poison > 0 ? ' · POISONED' : ''}${fx.length ? ' · ' + fx.join(' ').toUpperCase() : ''}`);
+  put('#clock', 'textContent', `DAY ${state.day} · ${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}${p.cold && !R.warm(p) ? ' · FREEZING' : ''}${p.poison > 0 ? ' · POISONED' : ''}${p.flying ? ' · FLYING' : p.mounted ? ' · ON BROOM' : ''}${fx.length ? ' · ' + fx.join(' ').toUpperCase() : ''}`);
   const alarmed = humanVillages.find(v => near(v, p, 150) && villageState.get(v.id).alarm > 0);
   put('#region', 'textContent', `${world.placeName(p.x, p.z)} · danger ${world.danger(p.x, p.z)}${alarmed ? ' · ALARM RAISED' : ''}`);
   const q = R.QUESTS[p.quest];
@@ -630,14 +676,21 @@ function compass() {
 }
 
 // ---------- panels ----------
+function gearText(it) {
+  return [it.armor && `armor ${it.armor}`, it.damage && `${it.damage} damage`, it.chop && `${it.chop} wood per strike`, it.mine && `${it.mine} stone per strike`, it.power && `spells ×${it.power}`,
+    it.mana && `+${it.mana} max mana`, it.warm && 'keeps out the cold', it.speed && `${Math.round((it.speed - 1) * 100)}% faster`, it.speed && (it.flies ? 'flies' : 'enchant with the Skyward Charm to fly')].filter(Boolean).join(', ');
+}
 function needsText(p, needs) { return Object.entries(needs).map(([id, n]) => `<span class="${R.count(p, id) < n ? 'short' : ''}">${n} ${ITEMS[id].name}</span>`).join(' · '); }
 function renderPack() {
   const p = state.player, st = stations();
   document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
   let html = '';
   if (tab === 'items') {
-    const items = Object.entries(p.inv).sort(([a], [b]) => ITEMS[a].name.localeCompare(ITEMS[b].name));
-    html = items.length ? `<ul>${items.map(([id, n]) => { const it = ITEMS[id], usable = it.food || it.heal || it.mana || it.effect; return `<li><span>${it.name} <small>× ${n}${it.herb ? ` · herb of ${REGIONS[it.herb].name}` : ''}</small></span>${usable ? `<button data-use="${id}">${it.food ? 'EAT' : 'USE'}</button>` : ''}</li>`; }).join('')}</ul>` : '<p class="hint">Nothing yet. Strike trees, rocks, bushes and herbs to gather.</p>';
+    const items = Object.entries(p.inv).sort(([a], [b]) => (ITEMS[b].slot ? 1 : 0) - (ITEMS[a].slot ? 1 : 0) || ITEMS[a].name.localeCompare(ITEMS[b].name));
+    const w = R.weapon(p), cut = Math.round((1 - R.armorFactor(p)) * 100);
+    html = `<p class="hint">Armor ${R.armor(p)} (${cut}% less damage taken) · Strike ${Math.round(w.damage)} · Spell power ×${R.spellPower(p).toFixed(2)}${R.warm(p) ? ' · Warm' : ''}</p>
+      <div class="slots">${Object.entries(SLOTS).map(([slot, label]) => { const id = p.equip[slot]; return `<div class="slot${id ? '' : ' empty'}"><small>${label}</small><b>${id ? ITEMS[id].name : '—'}</b>${id ? `<em>${gearText(ITEMS[id])}</em><button data-unequip="${slot}">REMOVE</button>` : ''}</div>`; }).join('')}</div>
+      <h4>Pack</h4>${items.length ? `<ul>${items.map(([id, n]) => { const it = ITEMS[id], usable = it.food || it.heal || it.mana || it.effect; return `<li><span>${it.name} <small>× ${n}${it.herb ? ` · herb of ${REGIONS[it.herb].name}` : ''}${it.slot ? ` · ${gearText(it)}` : ''}</small></span>${it.slot ? `<button data-equip="${id}">EQUIP</button>` : usable ? `<button data-use="${id}">${it.food ? 'EAT' : 'USE'}</button>` : ''}</li>`; }).join('')}</ul>` : '<p class="hint">Nothing yet. Strike trees, rocks, bushes and herbs to gather.</p>'}`;
   }
   if (tab === 'craft' || tab === 'alchemy') {
     const list = RECIPES.filter(r => tab === 'craft' ? !r.station : r.station);
@@ -664,12 +717,15 @@ function renderPack() {
 }
 $('#tabs').addEventListener('click', e => { if (e.target.dataset.tab) { tab = e.target.dataset.tab; renderPack(); } });
 $('#tabBody').addEventListener('click', e => {
-  const p = state.player, { use, craft, build, sell, buy } = e.target.dataset;
-  if ((sell || buy) && canTrade() && R.trade(p, sell || buy, !!sell)) { toast(sell ? `Sold ${ITEMS[sell].name} for ${SELL[sell]} silver.` : `Bought ${ITEMS[buy].name}.`); quests(); }
+  const p = state.player, { use, craft, build, sell, buy, equip, unequip } = e.target.dataset;
+  const wear = id => { const slot = R.autoEquip(p, id); if (slot) toast(`Equipped ${ITEMS[id].name}.`); };
+  if ((sell || buy) && canTrade() && R.trade(p, sell || buy, !!sell)) { toast(sell ? `Sold ${ITEMS[sell].name} for ${SELL[sell]} silver.` : `Bought ${ITEMS[buy].name}.`); if (buy) wear(buy); quests(); }
+  if (equip && R.equip(p, equip)) toast(`Equipped ${ITEMS[equip].name}.`);
+  if (unequip) R.unequip(p, unequip);
   if (use) { const msg = R.useItem(p, use); if (msg) toast(msg); }
   if (craft) {
     const before = R.skillLevel(p, 'alchemy'), made = R.craft(p, craft, stations());
-    if (made) { toast(`Made ${made} ${ITEMS[craft].name}.`); if (R.skillLevel(p, 'alchemy') > before) trained('alchemy', R.skillLevel(p, 'alchemy')); quests(); }
+    if (made) { toast(`Made ${made} ${ITEMS[craft].name}.`); wear(craft); if (R.skillLevel(p, 'alchemy') > before) trained('alchemy', R.skillLevel(p, 'alchemy')); quests(); }
   }
   if (build && placeBuilding(build)) { play(); return; }
   renderPack();
@@ -860,8 +916,8 @@ addEventListener('keydown', e => {
   if (['Space', 'Tab', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.code)) e.preventDefault();
   if (e.repeat) { if (mode === 'playing') keys.add(e.code); return; }
   if (e.code === 'Escape') { if (mode === 'playing') pause(); else if (mode === 'pack' || mode === 'map') play(); return; }
-  if (e.code === 'Tab' || e.code === 'KeyB' || e.code === 'KeyK' || e.code === 'KeyC') {
-    const want = { Tab: 'items', KeyB: 'build', KeyK: 'skills', KeyC: 'coven' }[e.code];
+  if (e.code === 'Tab' || e.code === 'KeyI' || e.code === 'KeyB' || e.code === 'KeyK' || e.code === 'KeyC') {
+    const want = { Tab: 'items', KeyI: 'items', KeyB: 'build', KeyK: 'skills', KeyC: 'coven' }[e.code];
     if (mode === 'playing') openPanel('pack', want); else if (mode === 'pack') { if (tab === want || e.code === 'Tab') play(); else { tab = want; renderPack(); } }
     return;
   }
@@ -872,6 +928,8 @@ addEventListener('keydown', e => {
   const spell = SPELL_KEYS.indexOf(e.code);
   if (spell >= 0) cast(spell);
   if (e.code === 'KeyE') interaction()?.act();
+  if (e.code === 'KeyF') toggleMount();
+  if (e.code === 'Space' && state.player.mounted && !state.player.flying) { const why = R.flightBlocker(state.player); if (why) toast(why); }
   if (e.code === 'KeyQ') { const food = R.bestFood(state.player); toast(food ? R.useItem(state.player, food) : 'You have nothing to eat. Gather berries or hunt.'); }
 });
 addEventListener('keyup', e => keys.delete(e.code));
@@ -925,7 +983,7 @@ function frame(now) {
     const built = allBuildings(), lights = lightSources();
     view.syncRemotes([...remotes.values()], now / 1000);
     view.syncWorld({ creatures, allies, boss, buildings: built, projectiles, elders: elders(), now: now / 1000 });
-    view.render({ player: p, yaw, pitch, dayTime: state.dayTime, now: now / 1000, dt, swing, toolName: R.weapon(p).name, lights, moving: moving && mode === 'playing', sight: !!p.effects.sight, glamour: !!p.effects.glamour });
+    view.render({ player: p, yaw, pitch, dayTime: state.dayTime, now: now / 1000, dt, swing, toolName: R.weapon(p).name, lights, moving: moving && mode === 'playing', sight: !!p.effects.sight, glamour: !!p.effects.glamour, mounted: !!p.mounted, flying: !!p.flying });
     put('#hurt', 'className', hurtFlash > 0 ? 'on' : '');
     if ((hudTimer -= dt) <= 0) { hudTimer = .1; hud(); }
   } else view.render({ player: p, yaw, pitch: .25, dayTime: .3, now: now / 1000, dt, swing: 0, toolName: 'fists', lights: hearthFires(), moving: false, sight: false });

@@ -18,10 +18,12 @@ Use a desktop browser with a keyboard and mouse. Progress saves in the browser's
 | Mouse (or ← →) | Look |
 | Left mouse | Strike, or gather from the tree, rock, bush or herb in front of you |
 | Right mouse or 1 | Your first spell |
-| 1–9 | Spells: 1–2 your class, 3–4 two-witch rites, 5–6 three-witch rites, 7 the Grand Rite, 8 Glamour, 9 Summon the Wyrd Titan |
+| 1–0 | Spells: 1–2 your class, 3–4 two-witch rites, 5–6 three-witch rites, 7 the Grand Rite, 8 Glamour, 9 Summon the Wyrd Titan, 0 Skyward Charm |
+| F | Mount or dismount your broom |
+| Space / X (on a Skyward Broom) | Fly up / down |
 | E | Interact: talk, recruit, attune, rest, cook, harvest, drink |
 | Q | Eat your best food |
-| Tab / B / K / C | Pack, build, skills, coven panels (Pack · Craft · Alchemy · Build · Skills · Coven · Trade) |
+| Tab or I / B / K / C | Inventory, build, skills, coven panels (Inventory · Craft · Alchemy · Build · Skills · Coven · Trade) |
 | M | World map |
 | Enter | Chat (online) |
 | Esc | Pause / close panel |
@@ -91,6 +93,20 @@ Ten per land (40 in all), from timid prey to hunters that only come out at night
 - **Greenwood:** Red Squirrel, Greenwood Deer, Wild Boar, Tusked Badger, Grey Wolf, Horned Owl, Treant Sapling, Brown Bear, Moonhowler, *Elderhorn the Ancient Stag*
 
 Creatures drop meat, hide, bone, feathers, slime, chitin, silk, venom, ectoplasm, honeycomb and the essences of their land.
+
+## Equipment and the broom
+
+The **Inventory** shows eight slots: Head, Chest, Cloak, Amulet, Weapon, two Tools and Mount. Only worn gear counts: equipped tools set how much each strike gathers (a hatchet for wood, a pick for stone and moonstone), the weapon slot sets your strike (otherwise you hit with your best tool), armor reduces damage taken (25 armor blocks a third), a cloak keeps out the cold, and a Moonstone Amulet adds 25 mana. Newly crafted or bought gear puts itself on if its slot is free.
+
+| Gear | Slot | Made from |
+| --- | --- | --- |
+| Hide Cap (armor 4), Bone Helm (9) | Head | hide + fiber; bone + hide |
+| Hide Jerkin (10), Chitin Mail (20), Iron Mail (26) | Chest | hide + fiber; chitin + silk + hide; bought for 70 silver |
+| Hide Cloak (2), Wool Cloak (3) | Cloak | hide + fiber; bought |
+| Moonstone Amulet (+25 mana) | Amulet | moonstone + silk |
+| Witch's Broom | Mount | wood + fiber + feathers |
+
+Mount the broom with **F** to travel 30% faster; it skims over water as well as land. A plain broom cannot fly: cast the **Skyward Charm** [0] with a second witch beside you (an AI sister or another player in your coven) and it becomes a **Skyward Broom** for good, which flies on its own: hold **Space** to climb and **X** to descend. Coven sisters ride alongside. Stepping off high in the air means a hard landing.
 
 ## Progression
 

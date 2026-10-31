@@ -157,7 +157,12 @@ export class WorldView {
     this.block(tool, '#6b4a2e', 0, 0, .4, .07, .07, 1.1);
     const head = this.block(tool, '#8a8a85', 0, 0, .85, .12, .22, .24);
     const legs = [-.15, .15].map(x => this.block(g, '#221a2a', x, .22, 0, .14, .45, .14));
-    Object.assign(g.userData, { body, arm, tool, head, legs, hat, brim, hood, cloak, sleeve, faces: 'z' });
+    // The broom: a handle along the facing direction with a bristle cone behind, shown when riding.
+    const broom = new THREE.Group(); broom.visible = false; g.add(broom);
+    this.block(broom, '#6b4a2e', 0, .45, .3, .07, .07, 2.4);
+    this.block(broom, '#c9a860', 0, .45, -1.15, .45, .7, .45, new THREE.ConeGeometry(.5, 1, 6)).rotation.x = Math.PI / 2;
+    this.block(broom, '#7a5a3a', 0, .45, -.82, .2, .2, .12, new THREE.CylinderGeometry(.5, .5, 1, 6)).rotation.x = Math.PI / 2;
+    Object.assign(g.userData, { body, arm, tool, head, legs, hat, brim, hood, cloak, sleeve, broom, faces: 'z' });
     return g;
   }
 
@@ -420,7 +425,8 @@ export class WorldView {
       m.visible = true;
       m.scale.setScalar(c.hurt > 2.8 ? 1.12 : 1);
     });
-    this.sync('allies', allies, a => a.ally === 'witch' ? this.witch(a.cls) : a.ally === 'fox' ? this.familiar('fox') : (() => { const s = ALLIES[a.ally]; return this.creature(a.ally === 'beast' ? 'quad' : 'biped', s.size, s.color, a.ally === 'titan' ? '#7dffd8' : '#9a6bff', { horns: true }); })(), (m, a) => this.pose(m, a, a.walk, now));
+    const riding = (m, a) => { if (m.userData.broom) m.userData.broom.visible = !!a.riding; };
+    this.sync('allies', allies, a => a.ally === 'witch' ? this.witch(a.cls) : a.ally === 'fox' ? this.familiar('fox') : (() => { const s = ALLIES[a.ally]; return this.creature(a.ally === 'beast' ? 'quad' : 'biped', s.size, s.color, a.ally === 'titan' ? '#7dffd8' : '#9a6bff', { horns: true }); })(), (m, a) => { this.pose(m, a, a.riding ? 0 : a.walk, now); riding(m, a); });
     this.sync('elders', elders, e => this.witch(e.cls, 1.05), (m, e) => this.pose(m, e, 0, now));
     this.sync('boss', boss ? [boss] : [], () => this.boss(), (m, b) => { this.pose(m, b, b.walk, now); m.userData.ward.visible = b.warded; m.userData.ward.rotation.y = now; });
     this.sync('buildings', buildings, b => { const g = this.building(b.type); g.position.set(b.x, b.y, b.z); g.rotation.y = b.rot ?? 0; return this.bake(g); }, () => {});
@@ -452,6 +458,8 @@ export class WorldView {
       u.legs.forEach((leg, i) => { leg.rotation.x = r.moving ? Math.sin(r.walk * 1.7 + i * Math.PI) * .6 : 0; });
       u.arm.rotation.x = r.swing > 0 ? -2.2 * Math.sin((1 - r.swing) * Math.PI) : 0;
       m.visible = r.hp > 0;
+      u.broom.visible = !!r.mounted;
+      if (r.mounted) u.legs.forEach(leg => { leg.rotation.x = 0; });
     });
   }
 
@@ -472,14 +480,16 @@ export class WorldView {
   }
 
   render(state) {
-    const { player, yaw, pitch, dayTime, now, swing, toolName, lights, moving, sight, dt, glamour = false } = state;
+    const { player, yaw, pitch, dayTime, now, swing, toolName, lights, moving, sight, dt, glamour = false, mounted = false, flying = false } = state;
     const w = this.player, u = w.userData;
     w.position.set(player.x, player.y, player.z); w.rotation.y = -player.yaw + Math.PI / 2;
-    u.legs.forEach((leg, i) => { leg.rotation.x = moving ? Math.sin(now * 10 + i * Math.PI) * .6 : 0; });
+    u.broom.visible = mounted;
+    u.legs.forEach((leg, i) => { leg.rotation.x = moving && !mounted ? Math.sin(now * 10 + i * Math.PI) * .6 : 0; });
+    u.body.rotation.x = flying && moving ? .12 : 0;
     u.arm.rotation.x = swing > 0 ? -2.2 * Math.sin((1 - swing) * Math.PI) : moving ? Math.sin(now * 10) * .3 : 0;
     u.tool.visible = toolName !== 'fists';
     u.hat.visible = u.brim.visible = !glamour; u.hood.visible = u.cloak.visible = u.sleeve.visible = glamour;
-    if (this.pet) this.pet.visible = !glamour;
+    if (this.pet) this.pet.visible = !glamour && (!flying || this.pet.userData.plan === 'bird');
     if (this.pet) {
       const t = this.pet, raven = t.userData.plan === 'bird', tx = player.x - Math.cos(player.yaw + .9) * 1.4, tz = player.z - Math.sin(player.yaw + .9) * 1.4;
       t.position.x += (tx - t.position.x) * Math.min(1, dt * 5); t.position.z += (tz - t.position.z) * Math.min(1, dt * 5);

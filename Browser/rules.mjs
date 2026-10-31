@@ -1,5 +1,5 @@
 // Player rules: inventory, skills, crafting, alchemy, building, needs, magic and quests. No rendering here.
-import { CLASSES, SPELLS, ITEMS, RECIPES, BUILDINGS, SKILLS, SELL, BUY } from './data.mjs';
+import { CLASSES, SPELLS, ITEMS, RECIPES, BUILDINGS, SKILLS, SELL, BUY, SLOTS } from './data.mjs';
 import { NODES } from './world.mjs';
 
 const STATS = () => ({ kills: 0, eliteKills: 0, boss: 0, trades: 0, souls: 0, titans: 0, discovered: 0, attuned: 0, talked: 0, brewed: 0, covenCasts: 0, crafted: {}, gathered: {}, built: {} });
@@ -10,7 +10,7 @@ export function newPlayer(classId, spawn) {
     class: classId, x: spawn.x, z: spawn.z, y: 0, vy: 0, yaw: 0, grounded: true,
     hp: k.hp, maxHp: k.hp, mana: k.mana, maxMana: k.mana, stamina: 100, maxStamina: 100, food: 100, water: 100,
     level: 1, xp: 0, inv: {}, skills: Object.fromEntries(Object.keys(SKILLS).map(s => [s, 0])),
-    effects: {}, poison: 0, cooldowns: {}, coven: [], home: { x: spawn.x, z: spawn.z, name: 'your hearth' },
+    effects: {}, poison: 0, cooldowns: {}, coven: [], equip: {}, mounted: false, flying: false, home: { x: spawn.x, z: spawn.z, name: 'your hearth' },
     stats: STATS(), quest: 0,
   };
 }
@@ -25,6 +25,50 @@ export function removeItem(p, id, n = 1) {
 }
 const hasAll = (p, needs) => Object.entries(needs).every(([id, n]) => count(p, id) >= n);
 const payAll = (p, needs) => { for (const [id, n] of Object.entries(needs)) removeItem(p, id, n); };
+
+// ---------- equipment ----------
+// Worn gear lives in `p.equip` (slot → item id), not in the pack. Only equipped gear has any effect.
+export const equipped = (p, id) => Object.values(p.equip ?? {}).includes(id);
+export const worn = p => Object.values(p.equip ?? {}).map(id => ITEMS[id]).filter(Boolean);
+const slotsFor = item => item.slot === 'tool' ? ['tool1', 'tool2'] : [item.slot];
+
+// Put an item from the pack on. Fills an empty matching slot, else swaps out the first one.
+export function equip(p, id) {
+  const item = ITEMS[id];
+  if (!item?.slot || !count(p, id)) return false;
+  const slots = slotsFor(item), slot = slots.find(s => !p.equip[s]) ?? slots[0];
+  if (p.equip[slot]) unequip(p, slot);
+  removeItem(p, id);
+  p.equip[slot] = id;
+  if (item.mana) p.maxMana += item.mana;
+  return slot;
+}
+export function unequip(p, slot) {
+  const id = p.equip[slot];
+  if (!id) return false;
+  delete p.equip[slot];
+  addItem(p, id);
+  const item = ITEMS[id];
+  if (item.mana) { p.maxMana -= item.mana; p.mana = Math.min(p.mana, p.maxMana); }
+  if (item.slot === 'mount') p.mounted = p.flying = false;
+  return true;
+}
+// Equip a newly made or bought item if its slot is free. Returns the slot, or false.
+export function autoEquip(p, id) {
+  const item = ITEMS[id];
+  return item?.slot && slotsFor(item).some(s => !p.equip[s]) ? equip(p, id) : false;
+}
+// Saves from before equipment existed: put on the best gear the witch carries.
+export function ensureEquip(p) {
+  if (p.equip) return;
+  p.equip = {}; p.mounted = p.flying = false;
+  const best = ids => ids.filter(id => count(p, id)).sort((a, b) => (ITEMS[b].damage ?? ITEMS[b].armor ?? 0) - (ITEMS[a].damage ?? ITEMS[a].armor ?? 0));
+  for (const id of [...best(['ironHatchet', 'hatchet']).slice(0, 1), ...best(['ironPick', 'pick']).slice(0, 1), ...best(['spear', 'staff']).slice(0, 1), ...best(['woolCloak', 'cloak']).slice(0, 1)]) equip(p, id);
+}
+export const armor = p => worn(p).reduce((sum, item) => sum + (item.armor ?? 0), 0);
+// Each point of armor helps a little less: 25 armor blocks a third of the damage.
+export const armorFactor = p => 50 / (50 + armor(p));
+const bestTool = (p, key) => [p.equip.tool1, p.equip.tool2].map(id => ITEMS[id]?.[key] ?? 0).reduce((a, b) => Math.max(a, b), 0);
 
 // ---------- levels & skills ----------
 export const xpToNext = level => 80 + level * 70;
@@ -53,25 +97,27 @@ export function train(p, id, xp) {
 // ---------- combat numbers ----------
 export function weapon(p) {
   const melee = (CLASSES[p.class].melee ?? 1) * (1 + (skillLevel(p, 'hunting') - 1) * .03);
-  if (count(p, 'spear')) return { name: 'spear', damage: 22 * melee, reach: 3.6 };
-  if (count(p, 'ironHatchet')) return { name: 'hatchet', damage: 18 * melee, reach: 2.6 };
-  if (count(p, 'hatchet')) return { name: 'hatchet', damage: 13 * melee, reach: 2.6 };
+  // The weapon slot first; otherwise the hardest-hitting tool in hand.
+  const w = ITEMS[p.equip?.weapon];
+  if (w) return { name: p.equip.weapon === 'spear' ? 'spear' : 'staff', damage: w.damage * melee, reach: w.reach ?? 2.6 };
+  const tool = [p.equip?.tool1, p.equip?.tool2].filter(Boolean).sort((a, b) => ITEMS[b].damage - ITEMS[a].damage)[0];
+  if (tool) return { name: 'hatchet', damage: ITEMS[tool].damage * melee, reach: 2.6 };
   return { name: 'fists', damage: 6 * melee, reach: 2.2 };
 }
 
 export function spellPower(p, night = false) {
   let power = CLASSES[p.class].power * (1 + (skillLevel(p, 'spellcraft') - 1) * .04);
-  if (count(p, 'staff')) power *= 1.15;
+  power *= ITEMS[p.equip?.weapon]?.power ?? 1;
   if (p.class === 'hex' && night) power *= 1.25;
   return power;
 }
 
-export const moveSpeedFactor = p => (p.class === 'bloom' ? 1.15 : 1) * (p.effects.swift ? 1.3 : 1);
+export const moveSpeedFactor = p => (p.class === 'bloom' ? 1.15 : 1) * (p.effects.swift ? 1.3 : 1) * (p.mounted ? ITEMS[p.equip.mount]?.speed ?? 1 : 1);
 export const poisonsOnHit = p => p.class === 'bog' || !!p.effects.venom;
 
 // Damage taken by the player after potions and spells. Returns the amount dealt.
 export function damagePlayer(p, amount, { poison = false } = {}) {
-  let dmg = amount;
+  let dmg = amount * armorFactor(p);
   if (p.effects.ironbark) dmg *= .6;
   if (p.effects.barkskin) dmg *= .5;
   p.hp -= dmg;
@@ -93,9 +139,9 @@ export function gatherYield(p, type, random = Math.random) {
     train(p, 'herbalism', 2);
   } else {
     const bonus = Math.floor((skillLevel(p, 'gathering') - 1) / 5);
-    if (node.yields === 'stone') out.stone = (count(p, 'ironPick') ? 5 : count(p, 'pick') ? 3 : 1) + bonus;
-    else if (node.yields === 'moonstone') { if (!count(p, 'pick') && !count(p, 'ironPick')) return out; out.moonstone = count(p, 'ironPick') ? 2 : 1; }
-    else out.wood = (count(p, 'ironHatchet') ? 5 : count(p, 'hatchet') ? 3 : 1) + bonus;
+    if (node.yields === 'stone') out.stone = (bestTool(p, 'mine') || 1) + bonus;
+    else if (node.yields === 'moonstone') { if (!bestTool(p, 'mine')) return out; out.moonstone = bestTool(p, 'moonstone') || 1; }
+    else out.wood = (bestTool(p, 'chop') || 1) + bonus;
     train(p, 'gathering', 3);
   }
   for (const [id, n] of Object.entries(out)) { addItem(p, id, n); p.stats.gathered[id] = (p.stats.gathered[id] ?? 0) + n; }
@@ -164,7 +210,7 @@ export function useItem(p, id) {
   return item.food ? `Ate ${item.name}.` : `Used ${item.name}.`;
 }
 export const bestFood = p => ['cookedMeat', 'bread', 'honeycomb', 'berries', 'rawMeat'].find(id => count(p, id));
-export const warm = p => !!(count(p, 'cloak') || count(p, 'woolCloak'));
+export const warm = p => !!ITEMS[p.equip?.cloak]?.warm;
 export function drink(p) { p.water = Math.min(100, p.water + 25); }
 
 // Advance needs, effects and regeneration by dt seconds. Returns true if the player died this tick.
@@ -192,7 +238,7 @@ export function respawn(p) {
 }
 
 // ---------- magic ----------
-export const knownSpells = p => [...CLASSES[p.class].spells, 'summonbeast', 'binding', 'storm', 'guardian', 'grandrite', 'glamour', 'titan'];
+export const knownSpells = p => [...CLASSES[p.class].spells, 'summonbeast', 'binding', 'storm', 'guardian', 'grandrite', 'glamour', 'titan', 'skyward'];
 
 // `covenNearby` counts witches within reach including you. Returns null if castable, else the reason.
 export function castBlocker(p, id, covenNearby) {
@@ -201,6 +247,7 @@ export function castBlocker(p, id, covenNearby) {
   if (covenNearby < s.coven) return `Needs a coven of ${s.coven}`;
   if (p.cooldowns[id]) return 'Not ready';
   if (p.mana < s.mana) return 'Not enough mana';
+  if (s.kind === 'enchant' && p.equip?.mount !== 'broom') return p.equip?.mount === 'skyBroom' ? 'Your broom already flies' : 'Equip a Witch\'s Broom first';
   if (s.reagent && !hasAll(p, s.reagent)) return `Needs ${Object.entries(s.reagent).map(([r, n]) => `${n} ${ITEMS[r].name}`).join(', ')}`;
   return null;
 }
@@ -232,6 +279,28 @@ export function trade(p, id, selling) {
 export function captureSoul(p) {
   if (!removeItem(p, 'soulJar')) return false;
   addItem(p, 'humanSoul'); p.stats.souls++;
+  return true;
+}
+
+// ---------- the broom ----------
+// Riding is 30% faster. A plain broom only skims the ground; the two-witch Skyward Charm enchants it for good
+// into a Skyward Broom, which flies on its own from then on.
+export const FLIGHT_CEILING = 150;
+export function mountBlocker(p, { swimming = false } = {}) {
+  if (!ITEMS[p.equip?.mount]?.speed) return 'Equip a Witch\'s Broom in your Mount slot';
+  if (swimming) return 'You cannot mount while swimming';
+  return null;
+}
+export function flightBlocker(p) {
+  if (!p.mounted) return 'Mount your broom first [F]';
+  if (!ITEMS[p.equip.mount]?.flies) return 'This broom only skims the ground. Enchant it with the Skyward Charm [0], cast with a second witch';
+  return null;
+}
+// The Skyward Charm's effect: the worn broom becomes a Skyward Broom.
+export function enchantBroom(p) {
+  if (p.equip?.mount !== 'broom') return false;
+  p.equip.mount = 'skyBroom';
+  p.stats.crafted.skyBroom = 1;
   return true;
 }
 

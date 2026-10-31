@@ -27,7 +27,7 @@ export function createHub({ now = Date.now } = {}) {
     if (!worlds.has(code)) worlds.set(code, { code, players: new Map(), harvested: new Map(), villages: new Map(), creatures: new Map(), boss: { hp: BOSS_HP, wardUntil: 0, downUntil: 0, lastNear: 0 } });
     return worlds.get(code);
   }
-  const publicPlayer = p => ({ id: p.id, name: p.name, coven: p.coven, cls: p.cls, level: p.level, x: p.x, y: p.y, z: p.z, yaw: p.yaw, hp: p.hp, maxHp: p.maxHp, moving: p.moving, swing: p.swing });
+  const publicPlayer = p => ({ id: p.id, name: p.name, coven: p.coven, cls: p.cls, level: p.level, x: p.x, y: p.y, z: p.z, yaw: p.yaw, hp: p.hp, maxHp: p.maxHp, moving: p.moving, swing: p.swing, mounted: !!p.mounted });
   const bossState = b => ({ hp: b.hp, max: BOSS_HP, warded: now() >= b.wardUntil, wardLeft: Math.max(0, (b.wardUntil - now()) / 1000), down: now() < b.downUntil });
   const publicCreature = c => ({ id: c.id, kind: c.kind, x: c.x, y: c.y, z: c.z, yaw: c.yaw, hp: c.hp, maxHp: c.maxHp, state: c.state, walk: c.walk, hurt: c.hurt, ...(c.hx !== undefined ? { hx: c.hx, hz: c.hz } : {}) });
   const dist = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
@@ -94,7 +94,7 @@ export function createHub({ now = Date.now } = {}) {
       village,
       bossHit,
       state(m) {
-        Object.assign(client, { x: num(m.x, -6000, 6000), y: num(m.y, -100, 1000), z: num(m.z, -6000, 6000), yaw: num(m.yaw, -1e4, 1e4), hp: num(m.hp, -1e4, 1e5), maxHp: num(m.maxHp, 1, 1e5, 1), level: num(m.level, 1, 999, 1), moving: !!m.moving, swing: num(m.swing, 0, 1), cls: CLASSES.has(m.cls) ? m.cls : client.cls });
+        Object.assign(client, { x: num(m.x, -6000, 6000), y: num(m.y, -100, 1000), z: num(m.z, -6000, 6000), yaw: num(m.yaw, -1e4, 1e4), hp: num(m.hp, -1e4, 1e5), maxHp: num(m.maxHp, 1, 1e5, 1), level: num(m.level, 1, 999, 1), moving: !!m.moving, mounted: !!m.mounted, swing: num(m.swing, 0, 1), cls: CLASSES.has(m.cls) ? m.cls : client.cls });
         if (Math.hypot(client.x, client.z) < CROWN_RANGE) client.world.boss.lastNear = now();
       },
       harvest(m) {
