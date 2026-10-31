@@ -104,3 +104,17 @@ footer{position:absolute;bottom:0;left:0;right:0;padding:12px 24px;display:flex;
 @media(max-width:760px){#pack.hero #packBody{grid-template-columns:1fr}#heroCanvas{margin:0 auto}}
 .panel.wide{width:min(1080px,96vw)}
 #region.safe{color:#c8f0c0}#region.risky{color:#f0e08a}#region.deadly{color:#ff9a8a}
+
+/* The goal on the title screen, the sound controls, How to play, and tooltips. */
+.menu p.goal{color:#e8d8ff;margin-top:-4px}.menu p.goal b{color:var(--gold);font-weight:normal;letter-spacing:1px}
+.sound{display:flex;align-items:center;gap:10px;margin:0 0 12px;font:12px Arial,sans-serif;color:#cbbfdc}.sound input[type=range]{flex:1;accent-color:#9a6bff}
+#helpBtn{margin-top:8px}
+#helpBody{columns:2 320px;column-gap:28px;margin-top:10px;font:13px/1.65 Arial,sans-serif;color:#d8cde8}
+#helpBody section{break-inside:avoid;margin:0 0 16px}#helpBody h4{margin:0 0 6px}#helpBody p{margin:0 0 6px}
+#helpBody ul{list-style:none;padding:0;margin:0}#helpBody li{display:block;padding:3px 0 3px 14px;border:0;font-size:13px;position:relative}
+#helpBody li::before{content:'✦';position:absolute;left:0;color:var(--violet);font-size:9px;top:6px}
+#helpBody kbd{font-size:10px}
+#tip{position:fixed;z-index:50;max-width:300px;padding:8px 11px;background:#1a1226f5;border:1px solid #9a6bff66;box-shadow:0 8px 24px #0009;font:12px/1.5 Arial,sans-serif;color:#e8deff;pointer-events:none;opacity:0;transition:opacity .12s}
+#tip.on{opacity:1}#tip b{color:var(--gold);font-weight:normal}#tip small{color:var(--dim)}
+#help{z-index:30}
+#spells{z-index:25;pointer-events:auto}

@@ -1,5 +1,6 @@
 import { createWorld, HALF, WORLD_SIZE, NODES, REGIONS, CROWN, HUMAN_VILLAGE } from './world.mjs';
 import { WorldView, HeroPreview } from './view.mjs';
+import { Music } from './music.mjs';
 import { CLASSES, SPELLS, ITEMS, RECIPES, BUILDINGS, SKILLS, VILLAGE_RADIUS, SELL, BUY, COVEN_SPELLS, SLOTS } from './data.mjs';
 import { CREATURE, BESTIARY, BOSS, ELITE_RESPAWN } from './bestiary.mjs';
 import * as R from './rules.mjs';
@@ -707,7 +708,7 @@ function hud() {
     + `<small>COVEN ${covenHere}/4</small>`);
   put('#spells', 'innerHTML', R.knownSpells(p).map((id, i) => {
     const s = SPELLS[id], blocker = R.castBlocker(p, id, covenHere, { solo: !net.online }), cd = p.cooldowns[id];
-    return `<div class="spell${blocker ? ' locked' : ''}" title="${s.name}${blocker ? ': ' + blocker : ''}" style="--c:${s.color}"><kbd>${i + 1}</kbd><b>${s.name}</b><small>${s.coven > 1 ? `${s.coven} witches` : `${s.mana} mana`}</small>${cd ? `<i style="height:${Math.round(cd / s.cooldown * 20) * 5}%"></i>` : ''}</div>`;
+    return `<div class="spell${blocker ? ' locked' : ''}" data-tip="${esc(spellTip(id, blocker))}" style="--c:${s.color}"><kbd>${i + 1}</kbd><b>${s.name}</b><small>${s.coven > 1 ? `${s.coven} witches` : `${s.mana} mana`}</small>${cd ? `<i style="height:${Math.round(cd / s.cooldown * 20) * 5}%"></i>` : ''}</div>`;
   }).join(''));
   const where = net.mode === 'host' ? `HOSTING · CODE ${net.code}` : net.mode === 'join' ? `GAME ${net.code}` : `ONLINE · ${net.world ?? online.world}`;
   put('#netStatus', 'textContent', net.status === 'online' ? `${where} · ${remotes.size} other${remotes.size === 1 ? '' : 's'}${online.coven ? ` · coven ‹${online.coven}›` : ''}` : net.status === 'offline' ? '' : net.status.toUpperCase() + '…');
@@ -760,11 +761,11 @@ function renderPack() {
     const w = R.weapon(p), cut = Math.round((1 - R.armorFactor(p)) * 100);
     html = `<p class="hint">Armor ${R.armor(p)} (${cut}% less damage taken) · Strike ${Math.round(w.damage)} · Spell power ×${R.spellPower(p).toFixed(2)}${R.warm(p) ? ' · Warm' : ''}</p>
       <div class="slots">${Object.entries(SLOTS).map(([slot, label]) => { const id = p.equip[slot], it = ITEMS[id]; return `<div class="slot${id ? '' : ' empty'}"${it?.rarity >= 0 ? ` style="border-color:${RARITIES[it.rarity].color}88"` : ''}><small>${label}</small><b${rarityStyle(it)}>${id ? it.name : '—'}</b>${id ? `<em>${gearText(it)}</em><button data-unequip="${slot}">REMOVE</button>` : ''}</div>`; }).join('')}</div>
-      <h4>Pack</h4>${items.length ? `<ul>${items.map(([id, n]) => { const it = ITEMS[id], usable = it.food || it.heal || it.mana || it.effect; return `<li><span><span${rarityStyle(it)}>${it.name}</span>${compare(p, it)} <small>× ${n}${it.herb ? ` · herb of ${REGIONS[it.herb].name}` : ''}${it.slot ? ` · ${it.rarity >= 0 ? RARITIES[it.rarity].name + ' · ' : ''}${gearText(it)}` : ''}</small></span>${it.slot ? `<span class="acts"><button data-equip="${id}">EQUIP</button>${it.generated || (it.slot !== 'mount' && it.slot !== 'tool') ? `<button data-salvage="${id}" title="Break down for materials">SALVAGE</button>` : ''}</span>` : usable ? `<button data-use="${id}">${it.food ? 'EAT' : 'USE'}</button>` : ''}</li>`; }).join('')}</ul>` : '<p class="hint">Nothing yet. Strike trees, rocks, bushes and herbs to gather.</p>'}`;
+      <h4>Pack</h4>${items.length ? `<ul>${items.map(([id, n]) => { const it = ITEMS[id], usable = it.food || it.heal || it.mana || it.effect; return `<li data-tip="${esc(itemTip(id))}"><span><span${rarityStyle(it)}>${it.name}</span>${compare(p, it)} <small>× ${n}${it.herb ? ` · herb of ${REGIONS[it.herb].name}` : ''}${it.slot ? ` · ${it.rarity >= 0 ? RARITIES[it.rarity].name + ' · ' : ''}${gearText(it)}` : ''}</small></span>${it.slot ? `<span class="acts"><button data-equip="${id}">EQUIP</button>${it.generated || (it.slot !== 'mount' && it.slot !== 'tool') ? `<button data-salvage="${id}" title="Break down for materials">SALVAGE</button>` : ''}</span>` : usable ? `<button data-use="${id}">${it.food ? 'EAT' : 'USE'}</button>` : ''}</li>`; }).join('')}</ul>` : '<p class="hint">Nothing yet. Strike trees, rocks, bushes and herbs to gather.</p>'}`;
   }
   if (tab === 'craft' || tab === 'alchemy') {
     const list = RECIPES.filter(r => tab === 'craft' ? !r.station : r.station);
-    html = `<p class="hint">${tab === 'alchemy' ? `Brew beside a Cauldron or Ritual Altar in your village. Near you: ${[...st].join(', ') || 'none'}.` : 'Crafted by hand, anywhere.'}</p><ul>${list.map(r => `<li><span>${ITEMS[r.id].name}${r.makes ? ` ×${r.makes}` : ''}<br><small>${needsText(p, r.needs)}${r.station ? ` · at ${r.station}` : ''}</small></span><button data-craft="${r.id}" ${R.canCraft(p, r, st) ? '' : 'disabled'}>${r.station ? 'BREW' : 'CRAFT'}</button></li>`).join('')}</ul>`;
+    html = `<p class="hint">${tab === 'alchemy' ? `Brew beside a Cauldron or Ritual Altar in your village. Near you: ${[...st].join(', ') || 'none'}.` : 'Crafted by hand, anywhere.'}</p><ul>${list.map(r => `<li data-tip="${esc(itemTip(r.id))}"><span>${ITEMS[r.id].name}${r.makes ? ` ×${r.makes}` : ''}<br><small>${needsText(p, r.needs)}${r.station ? ` · at ${r.station}` : ''}</small></span><button data-craft="${r.id}" ${R.canCraft(p, r, st) ? '' : 'disabled'}>${r.station ? 'BREW' : 'CRAFT'}</button></li>`).join('')}</ul>`;
   }
   if (tab === 'build') {
     const h = heart();
@@ -996,12 +997,12 @@ $('#chatInput').addEventListener('keydown', e => {
 
 // ---------- modes & input ----------
 function captureMouse() { try { canvas.requestPointerLock?.()?.catch?.(() => {}); } catch { /* arrow keys still turn */ } }
-function play() { goOnline(); mode = 'playing'; accumulator = 0; keys.clear(); for (const id of ['#overlay', '#pack', '#map', '#classes']) $(id).classList.add('hidden'); captureMouse(); }
+function play() { music.start(); goOnline(); mode = 'playing'; accumulator = 0; keys.clear(); for (const id of ['#overlay', '#pack', '#map', '#classes', '#help']) $(id).classList.add('hidden'); captureMouse(); }
 function openPanel(name, withTab) {
   mode = name; keys.clear(); document.exitPointerLock?.();
   $(`#${name}`).classList.remove('hidden');
   if (withTab) tab = withTab;
-  if (name === 'pack') renderPack(); else renderMap();
+  if (name === 'pack') renderPack(); else if (name === 'help') renderHelp(); else renderMap();
 }
 function pause() {
   mode = 'paused'; keys.clear(); document.exitPointerLock?.(); saveState();
@@ -1026,7 +1027,7 @@ document.addEventListener('pointerlockchange', () => { if (document.pointerLockE
 addEventListener('keydown', e => {
   if (['Space', 'Tab', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.code)) e.preventDefault();
   if (e.repeat) { if (mode === 'playing') keys.add(e.code); return; }
-  if (e.code === 'Escape') { if (mode === 'playing') pause(); else if (mode === 'pack' || mode === 'map') play(); return; }
+  if (e.code === 'Escape') { if (mode === 'playing') pause(); else if (mode === 'pack' || mode === 'map' || mode === 'help') play(); else if (mode === 'help-menu') closeMenuHelp(); return; }
   if (e.code === 'Tab' || e.code === 'KeyI' || e.code === 'KeyB' || e.code === 'KeyK' || e.code === 'KeyC') {
     const want = { Tab: 'items', KeyI: 'items', KeyB: 'build', KeyK: 'skills', KeyC: 'coven' }[e.code];
     if (mode === 'playing') openPanel('pack', want); else if (mode === 'pack') { if (tab === want || e.code === 'Tab') play(); else { tab = want; renderPack(); } }
@@ -1034,6 +1035,8 @@ addEventListener('keydown', e => {
   }
   if (e.code === 'Enter' && mode === 'playing') { e.preventDefault(); openChat(); return; }
   if (e.code === 'KeyM') { if (mode === 'playing') openPanel('map'); else if (mode === 'map') play(); return; }
+  if (e.code === 'KeyH') { if (mode === 'playing') openPanel('help'); else if (mode === 'help') play(); return; }
+  if (e.code === 'KeyN' && mode === 'playing') { setMusic(!music.enabled); toast(music.enabled ? 'Music on.' : 'Music off.'); return; }
   if (mode !== 'playing') return;
   keys.add(e.code);
   const spell = SPELL_KEYS.indexOf(e.code);
@@ -1056,6 +1059,77 @@ canvas.addEventListener('mousedown', e => {
   if (e.button === 0) strike();
   if (e.button === 2) cast(0);
 });
+
+// ---------- music ----------
+const MUSIC_KEY = 'coven-music';
+const music = new Music();
+try { const m = JSON.parse(localStorage.getItem(MUSIC_KEY) ?? 'null'); if (m === 0 || m === false) music.enabled = false; else if (m) { music.enabled = m.on; music.volume = m.volume; } } catch { /* defaults */ }
+$('#music-on').checked = music.enabled; $('#music-vol').value = Math.round(music.volume * 100);
+function setMusic(on, volume = music.volume) {
+  music.setVolume(volume); music.setEnabled(on);
+  $('#music-on').checked = on; $('#music-vol').value = Math.round(volume * 100);
+  try { localStorage.setItem(MUSIC_KEY, JSON.stringify({ on, volume })); } catch { /* not remembered */ }
+}
+$('#music-on').onchange = () => setMusic($('#music-on').checked);
+$('#music-vol').oninput = () => setMusic($('#music-on').checked, $('#music-vol').value / 100);
+// The mood follows the moment: battle when something hunts you or the Unwitch is near, night after dark.
+function musicMood() {
+  if (!state || mode !== 'playing') return;
+  const p = state.player, danger = (boss && near(boss, p, 160)) || creatures.some(c => c.hp > 0 && c.state === 'chase' && !CREATURE[c.kind].human && near(c, p, 30) && CREATURE[c.kind].temper !== 'timid');
+  music.setMood(danger ? 'battle' : isNight() ? 'night' : 'day');
+}
+
+// ---------- tooltips ----------
+// Anything with a data-tip shows it beside the pointer (while the pointer is free: menus, panels, the pause screen).
+const tip = document.createElement('div'); tip.id = 'tip'; document.body.append(tip);
+document.addEventListener('mouseover', e => {
+  const el = e.target.closest?.('[data-tip]');
+  if (!el || document.pointerLockElement) { tip.classList.remove('on'); return; }
+  tip.innerHTML = el.dataset.tip; tip.classList.add('on');
+});
+document.addEventListener('mousemove', e => {
+  if (!tip.classList.contains('on')) return;
+  const w = tip.offsetWidth, h = tip.offsetHeight;
+  tip.style.left = `${Math.min(innerWidth - w - 8, e.clientX + 14)}px`; tip.style.top = `${Math.max(8, Math.min(innerHeight - h - 8, e.clientY + 16))}px`;
+});
+document.addEventListener('mouseout', e => { if (!e.relatedTarget?.closest?.('[data-tip]')) tip.classList.remove('on'); });
+function spellTip(id, blocker) {
+  const s = SPELLS[id], parts = [`${s.mana} mana`, `${s.cooldown} s to recharge`];
+  if (s.coven > 1) parts.push(`${s.coven} witches online (alone, any spell casts once its mana and reagents are met)`);
+  if (s.reagent) parts.push(`uses ${Object.entries(s.reagent).map(([r, n]) => `${n} ${ITEMS[r].name}`).join(', ')}`);
+  return `<b>${s.name}</b><br>${s.text}<br><small>${parts.join(' · ')}</small>${blocker ? `<br><small>${blocker}</small>` : ''}`;
+}
+// What an item is for, in a line.
+function itemTip(id) {
+  const it = ITEMS[id], bits = [];
+  if (it.food) bits.push(`food +${it.food}`); if (it.water) bits.push(`water +${it.water}`); if (it.heal) bits.push(`heals ${it.heal}`); if (it.mana) bits.push(`mana +${it.mana}`);
+  if (it.effect) bits.push({ swift: 'run 30% faster', ironbark: 'take 40% less damage', sight: 'see in the dark', venom: 'your blows poison' }[it.effect] ?? it.effect, `${it.duration} s`);
+  if (it.hurt) bits.push('raw: cook it at a fire first');
+  if (it.herb) bits.push(`an herb of ${REGIONS[it.herb].name}`);
+  if (it.slot) bits.push(gearText(it));
+  if (it.reagent) bits.push('a reagent for spells');
+  const uses = RECIPES.filter(r => r.needs[id]).map(r => ITEMS[r.id].name);
+  if (uses.length) bits.push(`used in ${uses.slice(0, 4).join(', ')}${uses.length > 4 ? '…' : ''}`);
+  if (R.sellPrice(id)) bits.push(`sells for ${R.sellPrice(id)} silver`);
+  return `<b>${esc(it.name)}</b><br><small>${esc(bits.join(' · ') || 'A material.')}</small>`;
+}
+
+// ---------- how to play ----------
+function renderHelp() {
+  const keys = [['WASD / mouse', 'move and look'], ['Shift / Space', 'sprint / jump'], ['Left mouse', 'strike, or gather what is in front of you'], ['1–0 / right mouse', 'spells'], ['E', 'talk, trade, drink, cook, rest'], ['Q', 'eat'], ['F', 'broom (Space / X to fly up and down)'], ['Tab / I, B, K, C', 'inventory, build, skills, coven'], ['M / H / N', 'map, this page, music'], ['Esc', 'pause']];
+  $('#helpBody').innerHTML = `
+  <section><h4>THE STORY</h4><p>Four witches once kept the isle: the Bog Witch of the Mirefen, the Hex Witch of the Gloamwood, the Bloom Witch of Springvale and the Wild Witch of the Greenwood. Then the Unwitch rose at the Crown, the isle's heart, and broke their coven. You are the first to come back.</p></section>
+  <section><h4>YOUR GOAL</h4><p>Win back the other three paths' elders so your coven is whole again, then go to the Crown (follow the crimson beacon), summon the Wyrd Titan and cast the Grand Rite to break the Unwitch's ward and destroy her. The quest panel on the right always shows your next step.</p></section>
+  <section><h4>GETTING STARTED</h4><ul><li>Speak with your elder at your hearth [E].</li><li>Strike trees, rocks, bushes and herbs to gather. Craft a Stone Hatchet [Tab].</li><li>Found your village with a Village Heart [B], then a Cauldron to brew potions.</li><li>Two trees, two bushes and a bird's nest make a Witch's Broom: ride it with [F].</li></ul></section>
+  <section><h4>STAYING ALIVE</h4><ul><li>Watch food and water: eat [Q], cook meat at a fire, drink at ponds or a well.</li><li>The high mountains are cold at night: wear a cloak or keep near a fire.</li><li>If you fall, you wake at home (your hearth, village, hut or an attuned stone circle) with your things.</li><li>The isle is zoned by danger: green 1–3 near the coasts, then yellow, orange and the red Crown at 12–15. The map [M] shows the zones.</li></ul></section>
+  <section><h4>THE COVEN</h4><ul><li>At levels 3, 6 and 9 an elder of another path will join you, if you bring her a gift potion brewed from her own land's herbs.</li><li>Coven rites need two, three or four witches within 25 m. Playing alone, any spell can be cast once its mana and reagents are met; online, real players in the same coven count too.</li></ul></section>
+  <section><h4>HUMAN VILLAGES</h4><ul><li>Humans hunt witches. Walk in as yourself and the alarm goes up.</li><li>Cast Glamour [8] to wear a human face, then trade with the merchant for silver, bread, ale and iron tools.</li><li>Any other spell, or striking anyone, breaks the glamour. A human who falls near an empty Soul Jar gives up their soul, the price of the Wyrd Titan.</li></ul></section>
+  <section><h4>THE UNWITCH</h4><ul><li>Her ward lets only a tenth of any harm through, until a Grand Rite [7] shatters it for 30 seconds.</li><li>She calls thralls to her side, slams those who come close and hurls bolts at those who don't.</li><li>A Heartfire Sigil (made from an elite's Heartfire and the four lands' essences) makes three: enough for a Titan and two rites.</li></ul></section>
+  <section><h4>CONTROLS</h4><ul>${keys.map(([k, t]) => `<li><kbd>${k}</kbd> ${t}</li>`).join('')}</ul></section>`;
+}
+$('#helpBtn').onclick = () => { renderHelp(); $('#help').classList.remove('hidden'); mode = 'help-menu'; };
+function closeMenuHelp() { $('#help').classList.add('hidden'); mode = state && $('#overlay').classList.contains('hidden') ? 'playing' : state ? 'paused' : 'menu'; }
+document.querySelector('#help [data-close]').onclick = () => (mode === 'help-menu' ? closeMenuHelp() : play());
 
 const saved = loadState();
 if (saved) { begin(saved); $('#play').innerHTML = 'CONTINUE <span>→</span>'; $('#newGame').classList.remove('hidden'); }
@@ -1105,7 +1179,7 @@ function frame(now) {
     view.render({ player: p, yaw, pitch, dayTime: state.dayTime, now: now / 1000, dt, swing, toolName: R.weapon(p).name, lights, moving: moving && mode === 'playing', sight: !!p.effects.sight, sprinting: !!p.sprinting, look: lookOf(p), glamour: !!p.effects.glamour, mounted: !!p.mounted, flying: !!p.flying });
     put('#hurt', 'className', hurtFlash > 0 ? 'on' : '');
     if (mode === 'pack' && tab === 'items') { portrait ??= new HeroPreview($('#heroCanvas')); portrait.show(p.class, lookOf(p), now / 1000, dt); }
-    if ((hudTimer -= dt) <= 0) { hudTimer = .1; hud(); }
+    if ((hudTimer -= dt) <= 0) { hudTimer = .1; hud(); musicMood(); }
   } else view.render({ player: p, yaw, pitch: .25, dayTime: .3, now: now / 1000, dt, swing: 0, toolName: 'fists', lights: hearthFires(), moving: false, sight: false });
   requestAnimationFrame(frame);
 }

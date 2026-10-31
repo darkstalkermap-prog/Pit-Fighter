@@ -20,28 +20,31 @@
 <section id="hud">
  <div class="level"><span id="level">1</span><small id="className">WITCH</small></div>
  <div class="bars">
-  <div class="row"><label>HEALTH</label><div class="bar"><div id="hp" class="fill hp"></div></div><span id="hpText"></span></div>
-  <div class="row"><label>MANA</label><div class="bar"><div id="mp" class="fill mp"></div></div><span id="mpText"></span></div>
-  <div class="row"><label>STAMINA</label><div class="bar"><div id="st" class="fill st"></div></div><span id="stText"></span></div>
-  <div class="row"><label>FOOD</label><div class="bar"><div id="food" class="fill food"></div></div><span id="foodText"></span></div>
-  <div class="row"><label>WATER</label><div class="bar"><div id="water" class="fill water"></div></div><span id="waterText"></span></div>
+  <div class="row" data-tip="Health. You heal slowly while fed and watered. At zero you fall and wake at home."><label>HEALTH</label><div class="bar"><div id="hp" class="fill hp"></div></div><span id="hpText"></span></div>
+  <div class="row" data-tip="Mana pays for spells and comes back on its own; faster with a Mana Tonic."><label>MANA</label><div class="bar"><div id="mp" class="fill mp"></div></div><span id="mpText"></span></div>
+  <div class="row" data-tip="Stamina is spent sprinting, jumping, striking and swimming."><label>STAMINA</label><div class="bar"><div id="st" class="fill st"></div></div><span id="stText"></span></div>
+  <div class="row" data-tip="Food. Eat [Q] before it runs out, or you lose health. Cook meat at a fire."><label>FOOD</label><div class="bar"><div id="food" class="fill food"></div></div><span id="foodText"></span></div>
+  <div class="row" data-tip="Water. Drink [E] at a pond, the sea or a well before it runs out."><label>WATER</label><div class="bar"><div id="water" class="fill water"></div></div><span id="waterText"></span></div>
   <div class="xp"><div id="xp"></div></div>
  </div>
 </section>
 <div id="spells"></div>
-<footer><span><kbd>WASD</kbd> move</span><span><kbd>SHIFT</kbd> sprint</span><span><kbd>SPACE</kbd> jump</span><span><kbd>LMB</kbd> strike / gather</span><span><kbd>RMB</kbd> or <kbd>1</kbd>–<kbd>0</kbd> spells</span><span><kbd>E</kbd> interact</span><span><kbd>Q</kbd> eat</span><span><kbd>TAB</kbd>/<kbd>I</kbd> inventory</span><span><kbd>F</kbd> broom</span><span><kbd>B</kbd> build</span><span><kbd>K</kbd> skills</span><span><kbd>C</kbd> coven</span><span><kbd>M</kbd> map</span><span><kbd>ENTER</kbd> chat</span></footer>
+<footer><span><kbd>WASD</kbd> move</span><span><kbd>SHIFT</kbd> sprint</span><span><kbd>SPACE</kbd> jump</span><span><kbd>LMB</kbd> strike / gather</span><span><kbd>RMB</kbd> or <kbd>1</kbd>–<kbd>0</kbd> spells</span><span><kbd>E</kbd> interact</span><span><kbd>Q</kbd> eat</span><span><kbd>TAB</kbd>/<kbd>I</kbd> inventory</span><span><kbd>F</kbd> broom</span><span><kbd>B</kbd> build</span><span><kbd>K</kbd> skills</span><span><kbd>C</kbd> coven</span><span><kbd>M</kbd> map</span><span><kbd>H</kbd> how to play</span><span><kbd>N</kbd> music</span><span><kbd>ENTER</kbd> chat</span></footer>
 
 <section id="pack" class="panel hidden wide"><div class="panelHead"><div id="tabs"><button data-tab="items">INVENTORY</button><button data-tab="craft">CRAFT</button><button data-tab="alchemy">ALCHEMY</button><button data-tab="build">BUILD</button><button data-tab="skills">SKILLS</button><button data-tab="coven">COVEN</button><button data-tab="trade">TRADE</button></div><button data-close>CLOSE <kbd>ESC</kbd></button></div><div id="packBody"><canvas id="heroCanvas" width="480" height="760" aria-label="Your witch"></canvas><div id="tabBody"></div></div></section>
 
 <section id="map" class="panel hidden"><div class="panelHead"><h2>The Isle</h2><button data-close>CLOSE <kbd>M</kbd></button></div><canvas id="mapCanvas" width="640" height="640"></canvas><p class="hint">Four lands around the Crown, 5 km across. Zones are outlined in green, yellow, orange and red with their level ranges. Hearths ⌂ and the Crown ♛ are always known; other places appear once found.</p></section>
+
+<section id="help" class="panel hidden wide"><div class="panelHead"><h2>How to play</h2><button data-close>CLOSE <kbd>H</kbd></button></div><div id="helpBody"></div></section>
 
 <section id="classes" class="hidden"><div class="classWrap"><div class="eyebrow">CHOOSE YOUR PATH</div><h2>Which witch are you?</h2><p class="hint">You begin at your homeland's hearth. Sisters of the other three paths can join your coven later.</p><div id="classCards"></div><button id="classBack" class="ghost">← BACK</button></div></section>
 
 <div id="overlay"><div class="menu">
  <div class="eyebrow">AN OPEN-WORLD SURVIVAL RPG</div>
  <h1>COVEN</h1>
- <p id="description">The coven broke when the Unwitch rose at the Crown. Choose your path, survive the wild, master herb and spell, raise a village, and gather three sisters. Only four witches together can end her.</p>
- <div class="rules"><span>Four lands, four witch paths, 40 creatures</span><span>Alchemy, skills, familiars and a village to build</span><span>Coven rites need two, three or four witches</span></div>
+ <p id="description">Once there were four witches, and the isle was theirs. Then the Unwitch rose at the Crown, the coven broke, and every sister fled to her own corner of the wild. Now you are back. Brew potions in a bubbling cauldron, ride your broom over misty hills, charm human merchants in a borrowed face, and win back three sisters. Only four witches casting as one can end her.</p>
+ <p class="goal"><b>Your goal:</b> gather the full coven of four, summon the Wyrd Titan at the Crown and cast the Grand Rite to unmake the Unwitch. Follow the crimson beacon.</p>
+ <div class="rules"><span>Four lands, four witch paths, 40 creatures, one very bad witch</span><span>Herbs, alchemy, a village to raise and a broom that learns to fly</span><span>Coven rites for two, three and four witches, alone with AI sisters or with friends</span></div>
  <label class="gfx">Graphics <select id="gfx"><option value="auto">Auto (adapts to your computer)</option><option value="ultra">Ultra (strong graphics card)</option><option value="high">High: shadows, grass, anti-aliasing</option><option value="medium">Medium: shadows, no grass</option><option value="low">Low (older computers)</option></select></label>
  <div id="mp"><label class="check"><input type="checkbox" id="mp-enabled"> Play online with others</label>
   <div id="mpFields" class="hidden">
@@ -53,8 +56,10 @@
    <label class="m-server wide">Server<input id="mp-server" placeholder="https://your-coven-server.onrender.com" autocomplete="off"></label>
    <p class="m-host hint">You'll get a four-letter code to share once you enter the isle. Your browser runs the game for everyone, so keep this tab open.</p>
   </div></div>
+ <div class="sound"><label class="check" data-tip="Witchy music made as you play: harp, flute and drone by day, a music box by night, drums when danger is near. [N] in game."><input type="checkbox" id="music-on" checked> Music</label><input type="range" id="music-vol" min="0" max="100" value="50" aria-label="Music volume" data-tip="Music volume"></div>
  <button id="play">BEGIN <span>→</span></button>
+ <button id="helpBtn" class="ghost">HOW TO PLAY</button>
  <button id="newGame" class="ghost hidden">START A NEW LIFE</button>
- <small id="notice">Solo or online · AI sisters fill empty coven places · Low-detail graphics · Progress saves in this browser</small>
+ <small id="notice">Solo or online · AI sisters fill empty coven places · Progress saves in this browser</small>
 </div></div>
 <script type="module" src="game.mjs"></script></body></html>

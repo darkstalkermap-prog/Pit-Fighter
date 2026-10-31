@@ -34,22 +34,22 @@ export const CLASSES = {
 // kind: bolt (single target), aoe (around target), nova (around you), self, summon, rite.
 // coven: witches needed within 25 m (you count as one). skill: Spellcraft level needed.
 export const SPELLS = {
-  leechbolt: { name: 'Leech Bolt', kind: 'bolt', coven: 1, skill: 1, mana: 12, cooldown: 1.2, damage: 18, lifesteal: .5, color: '#7dff6a' },
-  miasma: { name: 'Miasma', kind: 'aoe', coven: 1, skill: 2, mana: 24, cooldown: 8, damage: 4, radius: 7, poison: 6, color: '#a8d84a' },
-  shadowbolt: { name: 'Shadow Bolt', kind: 'bolt', coven: 1, skill: 1, mana: 12, cooldown: 1.2, damage: 26, color: '#9a6bff' },
-  wither: { name: 'Withering Hex', kind: 'bolt', coven: 1, skill: 2, mana: 22, cooldown: 6, damage: 8, poison: 7, slow: 6, weaken: 8, color: '#c03cff' },
-  sunburst: { name: 'Sunburst', kind: 'aoe', coven: 1, skill: 1, mana: 14, cooldown: 2, damage: 16, radius: 5, healCoven: 8, color: '#ffd86a' },
-  renewal: { name: 'Renewal', kind: 'self', coven: 1, skill: 2, mana: 20, cooldown: 10, regen: 10, duration: 6, color: '#ffb0e8' },
-  thornlash: { name: 'Thorn Lash', kind: 'bolt', coven: 1, skill: 1, mana: 10, cooldown: 1, damage: 22, color: '#6ad84a' },
-  barkskin: { name: 'Barkskin', kind: 'self', coven: 1, skill: 2, mana: 20, cooldown: 15, shield: .5, duration: 10, color: '#a87a4a' },
-  summonbeast: { name: 'Summon Beast', kind: 'summon', coven: 2, skill: 3, mana: 30, cooldown: 30, reagent: { covenInk: 1 }, summon: 'beast', duration: 60, color: '#d6b46a' },
-  binding: { name: 'Binding Circle', kind: 'nova', coven: 2, skill: 3, mana: 30, cooldown: 20, reagent: { covenInk: 1 }, damage: 25, radius: 12, root: 5, color: '#9a6bff' },
-  storm: { name: 'Storm of the Three', kind: 'nova', coven: 3, skill: 5, mana: 50, cooldown: 25, reagent: { moonDust: 1 }, damage: 120, radius: 15, color: '#8fd3f4' },
-  guardian: { name: 'Call the Guardian', kind: 'summon', coven: 3, skill: 5, mana: 50, cooldown: 60, reagent: { moonDust: 1, covenInk: 1 }, summon: 'guardian', duration: 90, color: '#c9c3b8' },
-  grandrite: { name: 'The Grand Rite', kind: 'rite', coven: 4, skill: 7, mana: 80, cooldown: 30, reagent: { heartSigil: 1 }, damage: 400, radius: 25, breakWard: 30, color: '#ff3c6e' },
-  glamour: { name: 'Glamour', kind: 'glamour', coven: 1, skill: 1, mana: 25, cooldown: 10, reagent: { glamourDust: 1 }, duration: 150, color: '#f0e0ff' },
-  skyward: { name: 'Skyward Charm', kind: 'enchant', coven: 2, skill: 2, mana: 40, cooldown: 10, reagent: { feather: 4 }, color: '#bfe8ff' },
-  titan: { name: 'Summon the Wyrd Titan', kind: 'summon', coven: 4, skill: 8, mana: 100, cooldown: 180, reagent: { humanSoul: 3, heartSigil: 1 }, summon: 'titan', duration: 90, color: '#7dffd8' },
+  leechbolt: { name: 'Leech Bolt', text: "A bolt of bog-rot that drains life: half the damage it deals heals you.", kind: 'bolt', coven: 1, skill: 1, mana: 12, cooldown: 1.2, damage: 18, lifesteal: .5, color: '#7dff6a' },
+  miasma: { name: 'Miasma', text: "A choking cloud round your target: light damage and a lingering poison on everything inside it.", kind: 'aoe', coven: 1, skill: 2, mana: 24, cooldown: 8, damage: 4, radius: 7, poison: 6, color: '#a8d84a' },
+  shadowbolt: { name: 'Shadow Bolt', text: "A fast bolt of shadow, the hardest single blow of any path.", kind: 'bolt', coven: 1, skill: 1, mana: 12, cooldown: 1.2, damage: 26, color: '#9a6bff' },
+  wither: { name: 'Withering Hex', text: "A withering curse: it poisons and slows its target, and for 8 seconds its blows land 45% softer.", kind: 'bolt', coven: 1, skill: 2, mana: 22, cooldown: 6, damage: 8, poison: 7, slow: 6, weaken: 8, color: '#c03cff' },
+  sunburst: { name: 'Sunburst', text: "A burst of sunfire round your target that also mends you a little.", kind: 'aoe', coven: 1, skill: 1, mana: 14, cooldown: 2, damage: 16, radius: 5, healCoven: 8, color: '#ffd86a' },
+  renewal: { name: 'Renewal', text: "Warm golden light that heals you over 6 seconds.", kind: 'self', coven: 1, skill: 2, mana: 20, cooldown: 10, regen: 10, duration: 6, color: '#ffb0e8' },
+  thornlash: { name: 'Thorn Lash', text: "A whip of thorns: quick, cheap and strong.", kind: 'bolt', coven: 1, skill: 1, mana: 10, cooldown: 1, damage: 22, color: '#6ad84a' },
+  barkskin: { name: 'Barkskin', text: "Your skin turns to bark: you take half damage for 10 seconds.", kind: 'self', coven: 1, skill: 2, mana: 20, cooldown: 15, shield: .5, duration: 10, color: '#a87a4a' },
+  summonbeast: { name: 'Summon Beast', text: "Two witches call a beast of the wild to fight at your side for a minute.", kind: 'summon', coven: 2, skill: 3, mana: 30, cooldown: 30, reagent: { covenInk: 1 }, summon: 'beast', duration: 60, color: '#d6b46a' },
+  binding: { name: 'Binding Circle', text: "Two witches close a circle: every foe within 12 m is hurt and rooted for 5 seconds.", kind: 'nova', coven: 2, skill: 3, mana: 30, cooldown: 20, reagent: { covenInk: 1 }, damage: 25, radius: 12, root: 5, color: '#9a6bff' },
+  storm: { name: 'Storm of the Three', text: "Three witches call down a storm: 120 damage to everything within 15 m.", kind: 'nova', coven: 3, skill: 5, mana: 50, cooldown: 25, reagent: { moonDust: 1 }, damage: 120, radius: 15, color: '#8fd3f4' },
+  guardian: { name: 'Call the Guardian', text: "Three witches raise a Stone Guardian to fight for you for 90 seconds.", kind: 'summon', coven: 3, skill: 5, mana: 50, cooldown: 60, reagent: { moonDust: 1, covenInk: 1 }, summon: 'guardian', duration: 90, color: '#c9c3b8' },
+  grandrite: { name: 'The Grand Rite', text: "Four witches as one: 400 damage within 25 m, and it shatters the Unwitch's ward for 30 seconds.", kind: 'rite', coven: 4, skill: 7, mana: 80, cooldown: 30, reagent: { heartSigil: 1 }, damage: 400, radius: 25, breakWard: 30, color: '#ff3c6e' },
+  glamour: { name: 'Glamour', text: "Wear a human face for 150 seconds to walk and trade in human villages. Any other spell, or violence, breaks it.", kind: 'glamour', coven: 1, skill: 1, mana: 25, cooldown: 10, reagent: { glamourDust: 1 }, duration: 150, color: '#f0e0ff' },
+  skyward: { name: 'Skyward Charm', text: "Two witches enchant your Witch's Broom into a Skyward Broom that flies, for good.", kind: 'enchant', coven: 2, skill: 2, mana: 40, cooldown: 10, reagent: { feather: 4 }, color: '#bfe8ff' },
+  titan: { name: 'Summon the Wyrd Titan', text: "Four witches, three human souls and a Heartfire Sigil raise the Wyrd Titan for 90 seconds. Summon her at the Crown to face the Unwitch.", kind: 'summon', coven: 4, skill: 8, mana: 100, cooldown: 180, reagent: { humanSoul: 3, heartSigil: 1 }, summon: 'titan', duration: 90, color: '#7dffd8' },
 };
 export const COVEN_SPELLS = ['skyward', 'summonbeast', 'binding', 'storm', 'guardian', 'grandrite', 'titan'];
 
