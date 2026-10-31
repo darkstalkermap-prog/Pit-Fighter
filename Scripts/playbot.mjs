@@ -55,10 +55,16 @@ const spellKey = id => `Digit${(knownSpells(P()).indexOf(id) + 1) % 10}`;
 const ready = id => !P().cooldowns[id] && P().mana >= SPELLS[id].mana;
 
 // ---------- time ----------
+// The game must keep running, and no quest may take all day: either stops the quest with a note of why.
+let stalls = 0, deadline = Infinity;
+class Stop extends Error {}
 function sim(seconds) {
   ensurePlaying();
-  const p0 = P(), before = { hp: p0.hp, food: p0.food, water: p0.water, poison: p0.poison, cold: p0.cold };
+  if (performance.now() > deadline) throw new Stop('out of real time for this quest');
+  const p0 = P(), before = { hp: p0.hp, food: p0.food, water: p0.water, poison: p0.poison, cold: p0.cold }, clock0 = S().clock;
   C.step(seconds);
+  if (S().clock === clock0 && seconds > 0) { if (++stalls > 50) { stalls = 0; throw new Stop(`the game stopped running (mode "${C.mode}", panel ${document.querySelector('.panel:not(.hidden)')?.id ?? 'none'}, overlay ${!document.querySelector('#overlay').classList.contains('hidden')})`); } }
+  else stalls = 0;
   for (const m of C.messages.splice(0)) {
     recent.push(m); if (recent.length > 40) recent.shift();
     if (/You have fallen/.test(m)) { stats.deaths++; note(`DIED (hp ${Math.round(before.hp)}, food ${Math.round(before.food)}, water ${Math.round(before.water)}${before.poison > 0 ? ', poisoned' : ''}${before.cold ? ', freezing' : ''}; last threat: ${lastThreat}; ${recent.slice(-6, -1).join(' | ')})`); }
@@ -495,7 +501,8 @@ function fightBoss() {
   note(`the Unwitch: ${boss.hp} hp; carrying ${count('heartSigil')} sigils, ${count('humanSoul')} souls, ${count('healing')} healing draughts`);
   let t = 0, titan = false, rites = 0, lowest = boss.hp;
   const deaths = stats.deaths;
-  while (boss.hp > 0 && t < 900 && !S().bossDefeated && stats.deaths === deaths) {
+  const t0 = S().clock;
+  while (boss.hp > 0 && S().clock - t0 < 900 && !S().bossDefeated && stats.deaths === deaths) {
     const d = dist(boss.x, boss.z);
     if (P().hp < P().maxHp * .45) heal();
     const near = threat(8);
@@ -569,7 +576,9 @@ export function playQuest(i, tries = 2) {
   if (P().quest < i) { problem(`"${q.title}" came up while "${QUESTS[P().quest].title}" was still open`); return { quest: i, title: q.title, done: false, minutes: 0, level: P().level }; }
   note(`— begin "${q.title}"`);
   for (let k = 0; k < tries && P().quest === i; k++) {
-    try { QUEST_STEPS[i](); } catch (e) { problem(`the bot crashed: ${e.message}`, { stack: e.stack?.split('\n').slice(0, 3).join(' / ') }); }
+    deadline = performance.now() + 8 * 60 * 1000;
+    try { QUEST_STEPS[i](); } catch (e) { problem(e instanceof Stop ? e.message : `the bot crashed: ${e.message}`, e instanceof Stop ? {} : { stack: e.stack?.split('\n').slice(0, 3).join(' / ') }); }
+    deadline = Infinity;
     sim(1);
   }
   releaseAll();
