@@ -6,7 +6,14 @@ import { CREATURE, BOSS } from './bestiary.mjs';
 import { CLASSES } from './data.mjs';
 import { ALLIES } from './creatures.mjs';
 
-const TERRAIN_RADIUS = 3, OBJECT_RADIUS = 2, MAX_CHUNK = HALF / CHUNK;
+const MAX_CHUNK = HALF / CHUNK;
+// Graphics levels. Radii are in chunks (250 m): terrain, trees and rocks, and small plants (herbs and bushes).
+// `scale` is the render resolution; Auto starts at full and is lowered or raised by the game as frame times change.
+export const QUALITY = {
+  high: { terrain: 3, objects: 2, small: 1, fogNear: 160, fogFar: 620, scale: 1 },
+  auto: { terrain: 3, objects: 2, small: 1, fogNear: 160, fogFar: 620, scale: 1 },
+  low: { terrain: 2, objects: 1, small: 1, fogNear: 100, fogFar: 400, scale: .6 },
+};
 const DAY = new THREE.Color('#9cc1d6'), DUSK = new THREE.Color('#d08b62'), NIGHT = new THREE.Color('#141b30');
 
 function painted(geometry, color, x = 0, y = 0, z = 0) {
@@ -19,19 +26,23 @@ function painted(geometry, color, x = 0, y = 0, z = 0) {
   return g;
 }
 
+// Resource node models, kept to as few triangles as they can be: thousands are drawn at once.
+// Trunks and cones are open-ended because their caps are always buried or hidden inside the leaves.
 function nodeGeometries() {
-  const tree = (trunk, crown, crownGeo, h = 3) => mergeGeometries([painted(new THREE.CylinderGeometry(.25, .35, h, 5), trunk, 0, h / 2, 0), painted(crownGeo, crown, 0, h + 1.6, 0)]);
+  const trunk = (h, r0, r1, color) => painted(new THREE.CylinderGeometry(r0, r1, h, 4, 1, true), color, 0, h / 2, 0);
+  const tree = (bark, crown, crownGeo, h = 3) => mergeGeometries([trunk(h, .25, .35, bark), painted(crownGeo, crown, 0, h + 1.6, 0)]);
   const g = {
-    pine: tree('#5a3f2a', '#24452c', new THREE.ConeGeometry(2, 5.5, 6)),
+    pine: tree('#5a3f2a', '#24452c', new THREE.ConeGeometry(2, 5.5, 6, 1, true)),
     oak: tree('#5c4430', '#3f6b2f', new THREE.IcosahedronGeometry(2.5, 0)),
-    gloomtree: tree('#2a2026', '#2c2238', new THREE.ConeGeometry(2.2, 6.5, 5), 3.5),
+    gloomtree: tree('#2a2026', '#2c2238', new THREE.ConeGeometry(2.2, 6.5, 5, 1, true), 3.5),
     blossom: tree('#6a4a3a', '#e7a3c4', new THREE.IcosahedronGeometry(2.2, 0)),
-    deadtree: mergeGeometries([painted(new THREE.CylinderGeometry(.12, .3, 4.5, 4), '#4a4238', 0, 2.25, 0), painted(new THREE.BoxGeometry(1.8, .16, .16), '#4a4238', .7, 3.2, 0)]),
+    deadtree: mergeGeometries([trunk(4.5, .12, .3, '#4a4238'), painted(new THREE.BoxGeometry(1.8, .16, .16), '#4a4238', .7, 3.2, 0)]),
     rock: painted(new THREE.DodecahedronGeometry(1.5, 0).scale(1, .65, 1.1), '#7a7a74', 0, .4, 0),
     moonstone: mergeGeometries([painted(new THREE.DodecahedronGeometry(1.1, 0).scale(1, .6, 1), '#6a6a72', 0, .3, 0), painted(new THREE.OctahedronGeometry(.5, 0).scale(1, 2, 1), '#9fe8ff', .2, 1.1, 0), painted(new THREE.OctahedronGeometry(.35, 0).scale(1, 2, 1), '#9fe8ff', -.4, .9, .3)]),
-    bush: mergeGeometries([painted(new THREE.IcosahedronGeometry(.85, 0), '#3d5e2e', 0, .55, 0), painted(new THREE.IcosahedronGeometry(.18, 0), '#8a2f4a', .55, .8, .3)]),
+    bush: mergeGeometries([painted(new THREE.IcosahedronGeometry(.85, 0), '#3d5e2e', 0, .55, 0), painted(new THREE.OctahedronGeometry(.18, 0), '#8a2f4a', .55, .8, .3)]),
   };
-  for (const [id, n] of Object.entries(NODES)) if (n.herb) g[id] = mergeGeometries([painted(new THREE.BoxGeometry(.08, .6, .08), '#3f6a2e', 0, .3, 0), painted(new THREE.BoxGeometry(.5, .06, .12), '#4f7a3a', 0, .2, 0), painted(new THREE.IcosahedronGeometry(.22, 0), n.color, 0, .7, 0)]);
+  // Herbs: a three-sided stem and a flower head, 11 triangles.
+  for (const [id, n] of Object.entries(NODES)) if (n.herb) g[id] = mergeGeometries([painted(new THREE.ConeGeometry(.12, .7, 3, 1, true), '#3f6a2e', 0, .35, 0), painted(new THREE.OctahedronGeometry(.24, 0), n.color, 0, .72, 0)]);
   return g;
 }
 
@@ -39,7 +50,7 @@ export class WorldView {
   constructor(canvas, world) {
     this.world = world;
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
-    this.renderer.setPixelRatio(1);
+    this.quality = QUALITY.auto; this.scale = 1;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.scene = new THREE.Scene();
     this.scene.background = DAY.clone();
@@ -52,6 +63,7 @@ export class WorldView {
     this.lambert = new Map();
     this.terrainMaterial = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
     this.nodeMaterial = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
+    this.glowMaterial = new THREE.MeshBasicMaterial({ vertexColors: true });
     this.nodeGeometry = nodeGeometries();
     this.box = new THREE.BoxGeometry(1, 1, 1);
     this.ball = new THREE.IcosahedronGeometry(.5, 0);
@@ -61,15 +73,57 @@ export class WorldView {
     this.entities = new Map();
     this.effects = [];
 
-    const water = new THREE.Mesh(new THREE.PlaneGeometry(16000, 16000), new THREE.MeshLambertMaterial({ color: '#2d6578', transparent: true, opacity: .82 }));
+    // Opaque water: a see-through plane over most of the screen costs a lot of fill on weak GPUs.
+    const water = new THREE.Mesh(new THREE.PlaneGeometry(16000, 16000), new THREE.MeshLambertMaterial({ color: '#2f6a7c' }));
     water.rotation.x = -Math.PI / 2; water.position.y = .05;
+    water.updateMatrix(); water.matrixAutoUpdate = false;
     this.scene.add(water);
     this.lights = [0, 1].map(() => { const l = new THREE.PointLight(0xff9a4a, 0, 28, 1.6); this.scene.add(l); return l; });
     this.buildPois();
     this.resize();
+    this.setQuality('auto');
   }
 
-  resize() { this.renderer.setSize(innerWidth, innerHeight, false); this.camera.aspect = innerWidth / innerHeight; this.camera.updateProjectionMatrix(); }
+  resize() { this.renderer.setPixelRatio(this.scale); this.renderer.setSize(innerWidth, innerHeight, false); this.camera.aspect = innerWidth / innerHeight; this.camera.updateProjectionMatrix(); }
+
+  setQuality(level) {
+    this.quality = QUALITY[level] ?? QUALITY.auto;
+    this.scene.fog.near = this.quality.fogNear; this.scene.fog.far = this.quality.fogFar;
+    this.camera.far = this.quality.fogFar + 40; // nothing past the fog is visible: don't draw it
+    this.lastCell = null;
+    this.setScale(this.quality.scale);
+  }
+  // Render resolution as a fraction of the screen's (capped at 1:1 CSS pixels).
+  setScale(scale) {
+    if (Math.abs(scale - this.scale) < .01) return;
+    this.scale = scale; this.resize();
+  }
+
+  // Merge a static group's meshes into one lit and one glowing mesh, and stop updating its matrices.
+  // Hundreds of little blocks become two draw calls.
+  bake(group) {
+    group.updateMatrixWorld(true);
+    const inv = group.matrixWorld.clone().invert(), lit = [], glow = [], local = new THREE.Matrix4();
+    group.traverse(o => {
+      if (!o.isMesh) return;
+      const g = o.geometry.index ? o.geometry.toNonIndexed() : o.geometry.clone();
+      g.applyMatrix4(local.multiplyMatrices(inv, o.matrixWorld));
+      if (!g.attributes.color) {
+        const c = o.material.color, n = g.attributes.position.count, colors = new Float32Array(n * 3);
+        for (let i = 0; i < n; i++) colors.set([c.r, c.g, c.b], i * 3);
+        g.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+      }
+      for (const name of Object.keys(g.attributes)) if (!['position', 'normal', 'color'].includes(name)) g.deleteAttribute(name);
+      if (!g.attributes.normal) g.computeVertexNormals();
+      (o.material.isMeshBasicMaterial ? glow : lit).push(g);
+    });
+    group.clear();
+    if (lit.length) group.add(new THREE.Mesh(mergeGeometries(lit), this.nodeMaterial));
+    if (glow.length) group.add(new THREE.Mesh(mergeGeometries(glow), this.glowMaterial));
+    group.updateMatrix(); group.updateMatrixWorld(true);
+    group.traverse(o => { o.matrixAutoUpdate = false; });
+    return group;
+  }
 
   mat(color, glow = false) {
     const key = color + glow;
@@ -230,7 +284,7 @@ export class WorldView {
       if (poi.type === 'lair') { for (let i = 0; i < 10; i++) { const a = i * 2.4; b(i % 2 ? '#d8d0c0' : '#3a3036', Math.cos(a) * (4 + i), .4, Math.sin(a) * (4 + i), 1.2, .6 + (i % 3) * .4, .8); } }
       if (poi.type === 'village') g.add(this.village(poi));
       if (poi.type === 'crown') { for (let i = 0; i < 12; i++) { const a = i / 12 * Math.PI * 2; b('#1a1420', Math.cos(a) * 55, 7, Math.sin(a) * 55, 3, 14 + (i % 3) * 5, 3, new THREE.ConeGeometry(.5, 1, 4)); } b('#ff3c6e', 0, .1, 0, 30, .1, 30, new THREE.CylinderGeometry(.5, .5, 1, 24), true).material = new THREE.MeshBasicMaterial({ color: '#3a1020' }); }
-      this.scene.add(g); this.poiMeshes.push(g);
+      this.scene.add(this.bake(g)); this.poiMeshes.push(g);
     }
   }
 
@@ -246,15 +300,23 @@ export class WorldView {
     if (ref) { ref.mesh.setMatrixAt(ref.index, ref.matrix); ref.mesh.instanceMatrix.needsUpdate = true; }
   }
 
-  buildChunk(cx, cz) {
-    const key = `${cx},${cz}`, data = this.world.chunkMesh(cx, cz), geometry = new THREE.BufferGeometry();
+  // Vertex spacing by chunk distance: full detail nearby, coarser in the fog.
+  static stepFor(d) { return d <= 1 ? 1 : d === 2 ? 2 : 5; }
+
+  terrainGeometry(cx, cz, step) {
+    const data = this.world.chunkMesh(cx, cz, step), geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.BufferAttribute(data.positions, 3));
     geometry.setAttribute('color', new THREE.BufferAttribute(data.colors, 3));
     geometry.setIndex(new THREE.BufferAttribute(data.indices, 1));
     geometry.computeVertexNormals();
-    const mesh = new THREE.Mesh(geometry, this.terrainMaterial);
+    return geometry;
+  }
+
+  buildChunk(cx, cz, step = 1) {
+    const key = `${cx},${cz}`, mesh = new THREE.Mesh(this.terrainGeometry(cx, cz, step), this.terrainMaterial);
+    mesh.matrixAutoUpdate = false;
     this.scene.add(mesh);
-    const chunk = { key, cx, cz, mesh, nodes: [], instanced: [], hasObjects: false };
+    const chunk = { key, cx, cz, mesh, step, nodes: [], instanced: [], hasObjects: false };
     this.chunks.set(key, chunk);
     return chunk;
   }
@@ -266,6 +328,8 @@ export class WorldView {
     const q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0), zero = new THREE.Matrix4().makeScale(0, 0, 0);
     for (const [type, nodes] of Object.entries(byType)) {
       const mesh = new THREE.InstancedMesh(this.nodeGeometry[type], this.nodeMaterial, nodes.length);
+      mesh.matrixAutoUpdate = false; mesh.userData.small = !!NODES[type].herb || type === 'bush' || type === 'rock';
+      mesh.visible = !mesh.userData.small || chunk.d <= this.quality.small;
       nodes.forEach((n, i) => {
         const matrix = new THREE.Matrix4().compose(new THREE.Vector3(n.x, n.y - .1, n.z), q.setFromAxisAngle(up, n.rot), new THREE.Vector3(n.s, n.s, n.s));
         mesh.setMatrixAt(i, this.hidden.has(n.id) ? zero : matrix);
@@ -283,8 +347,12 @@ export class WorldView {
   }
 
   // Stream chunks around (x, z). `budget` caps how many are built this call.
+  // Plans only when you enter a new chunk or work is still pending, so most frames this returns at once.
   stream(x, z, budget = 2) {
-    const pcx = Math.floor(x / CHUNK), pcz = Math.floor(z / CHUNK), wanted = [];
+    const pcx = Math.floor(x / CHUNK), pcz = Math.floor(z / CHUNK), cell = `${pcx},${pcz}`;
+    if (cell === this.lastCell && !this.pending) return;
+    this.lastCell = cell; this.pending = false;
+    const { terrain: TERRAIN_RADIUS, objects: OBJECT_RADIUS } = this.quality, wanted = [];
     for (let dz = -TERRAIN_RADIUS; dz <= TERRAIN_RADIUS; dz++) for (let dx = -TERRAIN_RADIUS; dx <= TERRAIN_RADIUS; dx++) {
       const cx = pcx + dx, cz = pcz + dz;
       if (cx < -MAX_CHUNK - 1 || cz < -MAX_CHUNK - 1 || cx > MAX_CHUNK || cz > MAX_CHUNK) continue;
@@ -293,11 +361,19 @@ export class WorldView {
     wanted.sort((a, b) => a.d - b.d);
     for (const w of wanted) {
       let chunk = this.chunks.get(`${w.cx},${w.cz}`);
-      if (!chunk) { if (budget-- <= 0) break; chunk = this.buildChunk(w.cx, w.cz); }
-      if (w.d <= OBJECT_RADIUS && !chunk.hasObjects) { if (budget-- <= 0) break; this.buildObjects(chunk); }
+      const step = WorldView.stepFor(w.d);
+      if (!chunk) { if (budget-- <= 0) { this.pending = true; break; } chunk = this.buildChunk(w.cx, w.cz, step); }
+      else if (chunk.step !== step) {
+        if (budget-- <= 0) { this.pending = true; break; }
+        chunk.mesh.geometry.dispose(); chunk.mesh.geometry = this.terrainGeometry(w.cx, w.cz, step); chunk.step = step;
+      }
+      chunk.d = w.d;
+      if (w.d <= OBJECT_RADIUS && !chunk.hasObjects) { if (budget-- <= 0) { this.pending = true; break; } this.buildObjects(chunk); }
     }
     for (const chunk of this.chunks.values()) {
       const d = Math.max(Math.abs(chunk.cx - pcx), Math.abs(chunk.cz - pcz));
+      chunk.d = d;
+      for (const mesh of chunk.instanced) if (mesh.userData.small) mesh.visible = d <= this.quality.small;
       if (d > TERRAIN_RADIUS + 1) { this.dropObjects(chunk); this.scene.remove(chunk.mesh); chunk.mesh.geometry.dispose(); this.chunks.delete(chunk.key); }
       else if (d > OBJECT_RADIUS + 1 && chunk.hasObjects) this.dropObjects(chunk);
     }
@@ -347,7 +423,7 @@ export class WorldView {
     this.sync('allies', allies, a => a.ally === 'witch' ? this.witch(a.cls) : a.ally === 'fox' ? this.familiar('fox') : (() => { const s = ALLIES[a.ally]; return this.creature(a.ally === 'beast' ? 'quad' : 'biped', s.size, s.color, a.ally === 'titan' ? '#7dffd8' : '#9a6bff', { horns: true }); })(), (m, a) => this.pose(m, a, a.walk, now));
     this.sync('elders', elders, e => this.witch(e.cls, 1.05), (m, e) => this.pose(m, e, 0, now));
     this.sync('boss', boss ? [boss] : [], () => this.boss(), (m, b) => { this.pose(m, b, b.walk, now); m.userData.ward.visible = b.warded; m.userData.ward.rotation.y = now; });
-    this.sync('buildings', buildings, b => this.building(b.type), (m, b) => { m.position.set(b.x, b.y, b.z); m.rotation.y = b.rot ?? 0; });
+    this.sync('buildings', buildings, b => { const g = this.building(b.type); g.position.set(b.x, b.y, b.z); g.rotation.y = b.rot ?? 0; return this.bake(g); }, () => {});
     this.sync('projectiles', projectiles, p => new THREE.Mesh(this.ball, this.mat(p.color, true)), (m, p) => m.position.set(p.x, p.y, p.z));
   }
 
@@ -427,7 +503,13 @@ export class WorldView {
     this.sun.target.position.set(player.x, player.y, player.z);
 
     const near = [...lights].sort((f, g) => Math.hypot(f.x - player.x, f.z - player.z) - Math.hypot(g.x - player.x, g.z - player.z));
-    this.lights.forEach((l, i) => { const f = near[i]; l.intensity = f && day < .6 ? 16 + Math.sin(now * 13 + i) * 3 : 0; if (f) l.position.set(f.x, f.y + 1.5, f.z); });
+    // Point lights cost every lit pixel whether or not they shine, so they leave the scene when dark (off).
+    // Only firelight within reach at dusk or night is turned on; the shader changes at most twice a day.
+    this.lights.forEach((l, i) => {
+      const f = near[i], on = !!f && day < .6 && Math.hypot(f.x - player.x, f.z - player.z) < 120;
+      l.visible = on;
+      if (on) { l.intensity = 16 + Math.sin(now * 13 + i) * 3; l.position.set(f.x, f.y + 1.5, f.z); }
+    });
     this.effects = this.effects.filter(e => {
       e.t += dt; e.m.scale.setScalar(e.radius * (.3 + e.t * 1.6)); e.m.material.opacity = Math.max(0, .8 - e.t * 1.4);
       if (e.t > .6) { this.scene.remove(e.m); e.m.geometry.dispose(); e.m.material.dispose(); return false; }

@@ -82,3 +82,7 @@ footer{position:absolute;bottom:0;left:0;right:0;padding:12px 24px;display:flex;
 #mpFields label{display:flex;flex-direction:column;gap:3px;font-size:10px;letter-spacing:1px;color:var(--dim)}
 #mpFields label:last-child{grid-column:1/-1}
 #mpFields input{padding:7px;background:#1d1628;color:var(--ink);border:1px solid #ffffff2b;font:12px Arial,sans-serif}
+
+#hurt{position:absolute;inset:0;pointer-events:none;background:radial-gradient(ellipse at center,transparent 45%,#b0101099);opacity:0;transition:opacity .25s}#hurt.on{opacity:1;transition:none}
+.gfx{display:flex;gap:8px;align-items:center;margin:0 0 12px;font:12px Arial,sans-serif;color:#cbbfdc}
+.gfx select{padding:5px;background:#1d1628;color:var(--ink);border:1px solid #ffffff2b;font:12px Arial,sans-serif}

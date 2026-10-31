@@ -10,7 +10,10 @@ const SAVE_KEY = 'coven-save-v2', ONLINE_KEY = 'coven-online', DAY_LENGTH = 1200
 const REGION_CLASS = { swamp: 'bog', darkforest: 'hex', meadow: 'bloom', forest: 'wild' };
 const SPELL_KEYS = ['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'Digit6', 'Digit7', 'Digit8', 'Digit9'];
 const ALARM = 180, HUMAN_SPAWN = 300, HUMAN_DESPAWN = 450;
-const $ = s => document.querySelector(s), canvas = $('#world');
+// Cached element lookup (re-queried if the element was replaced).
+const found = new Map();
+const $ = s => { let el = found.get(s); if (!el?.isConnected) { el = document.querySelector(s); found.set(s, el); } return el; };
+const canvas = $('#world');
 const world = createWorld(1337);
 
 let view;
@@ -32,12 +35,12 @@ function loadState() {
 function saveState() { if (state) try { localStorage.setItem(SAVE_KEY, JSON.stringify(state)); } catch { /* storage unavailable: progress lasts this session only */ } }
 
 const net = new Net();
-let remotes = new Map(), villages = new Map(), serverBoss = null, netTimer = 0;
+let remotes = new Map(), villages = new Map(), serverBoss = null, netTimer = 0, lastSent = '', heartbeat = 0;
 let state = null, explored, creatures = [], allies = [], projectiles = [], boss = null, keys = new Set(), mode = 'menu';
 let yaw = 0, pitch = .3, swing = 0, swingCooldown = 0, last = 0, accumulator = 0, saveTimer = 0, spawnTimer = 0, moving = false, hurtFlash = 0, mapBase = null, tab = 'items', nextId = 1;
 
 function begin(s) {
-  state = s;
+  state = s; buildingsChanged();
   const p = state.player;
   explored = new Uint8Array(EXPLORE * EXPLORE);
   for (const i of state.explored) explored[i] = 1;
@@ -83,9 +86,14 @@ const stations = () => new Set(['cauldron', 'altar'].filter(t => builtNear(t, 8)
 const sisters = () => allies.filter(a => a.ally === 'witch');
 const covenMates = () => { const c = online.coven.toLowerCase(); return c ? [...remotes.values()].filter(r => r.coven.toLowerCase() === c) : []; };
 const covenNearby = () => Math.min(4, 1 + sisters().filter(s => near(s, state.player, COVEN_REACH)).length + covenMates().filter(r => r.hp > 0 && near(r, state.player, COVEN_REACH)).length);
-const allBuildings = () => [...state.buildings, ...[...villages.values()].flatMap(v => v.list)];
-const elders = () => world.pois.filter(p => p.type === 'hearth').map(h => ({ id: `elder-${h.region}`, cls: REGION_CLASS[h.region], x: h.x + 3, z: h.z + 3, y: h.y, yaw: Math.PI / 4, hearth: h }))
-  .filter(e => !state.player.coven.includes(e.cls));
+// Built once and reused until a building is placed or another player's village changes.
+let builtCache = null, lightCache = null;
+const allBuildings = () => builtCache ??= [...state.buildings, ...[...villages.values()].flatMap(v => v.list)];
+const lightSources = () => lightCache ??= [...allBuildings().filter(b => b.type === 'campfire' || b.type === 'lantern'), ...hearthFires()];
+const buildingsChanged = () => { builtCache = lightCache = null; };
+const ELDERS = world.pois.filter(p => p.type === 'hearth').map(h => ({ id: `elder-${h.region}`, cls: REGION_CLASS[h.region], x: h.x + 3, z: h.z + 3, y: h.y, yaw: Math.PI / 4, hearth: h }));
+let elderCache = null, elderKey = '';
+const elders = () => { const key = state.player.coven.join(); if (key !== elderKey || !elderCache) { elderKey = key; elderCache = ELDERS.filter(e => !state.player.coven.includes(e.cls)); } return elderCache; };
 const wards = () => state.buildings.filter(b => b.type === 'totem');
 
 // ---------- human villages ----------
@@ -333,6 +341,7 @@ function placeBuilding(type) {
   const before = R.skillLevel(p, 'building');
   R.build(p, type);
   if (R.skillLevel(p, 'building') > before) trained('building', R.skillLevel(p, 'building'));
+  buildingsChanged();
   state.buildings.push({ id: `b${Date.now()}${Math.random()}`, type, x, y, z, rot: -p.yaw + Math.PI / 2, stock: 0, grow: 0 });
   if (type === 'heart') { p.home = { x: x + 3, z, name: 'your village' }; toast('Your village is founded. Build within 60 m of the Heart.', true); }
   else toast(`Built: ${BUILDINGS[type].name}.`);
@@ -502,51 +511,55 @@ function update(dt) {
   netTimer -= dt;
   if (netTimer <= 0 && net.online) {
     netTimer = .1;
-    const p = state.player;
-    net.send({ type: 'state', x: p.x, y: p.y, z: p.z, yaw: p.yaw, hp: p.hp, maxHp: p.maxHp, level: p.level, cls: p.class, moving, swing });
+    const p = state.player, r = v => Math.round(v * 100) / 100;
+    const msg = { type: 'state', x: r(p.x), y: r(p.y), z: r(p.z), yaw: r(p.yaw), hp: Math.ceil(p.hp), maxHp: p.maxHp, level: p.level, cls: p.class, moving, swing: r(swing) };
+    const key = JSON.stringify(msg);
+    // Idle witches send nothing new except a once-a-second heartbeat.
+    if (key !== lastSent || (heartbeat -= .1) <= 0) { net.send(msg); lastSent = key; heartbeat = 1; }
   }
   swing = Math.max(0, swing - dt / .45); swingCooldown -= dt; hurtFlash = Math.max(0, hurtFlash - dt);
   updatePlayer(dt); updateVillages(dt); updateCreatures(dt); updateBoss(dt); updateProjectiles(dt); updateWorld(dt);
 }
 
 // ---------- HUD ----------
-const bar = (id, v, max) => { $(`#${id}`).style.width = `${Math.max(0, v / max * 100)}%`; $(`#${id}Text`).textContent = `${Math.ceil(Math.max(0, v))}`; };
-let lastRegion = '';
+// The HUD redraws ten times a second and writes to the page only what changed: layout is costly.
+const shown = new Map();
+const put = (sel, prop, value) => { const key = sel + prop; if (shown.get(key) === value) return; shown.set(key, value); const el = $(sel); if (prop === 'width') el.style.width = value; else el[prop] = value; };
+const esc = t => String(t).replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`);
+const bar = (id, v, max) => { put(`#${id}`, 'width', `${Math.max(0, Math.round(v / max * 1000) / 10)}%`); put(`#${id}Text`, 'textContent', `${Math.ceil(Math.max(0, v))}`); };
 function hud() {
   const p = state.player;
   bar('hp', p.hp, p.maxHp); bar('mp', p.mana, p.maxMana); bar('st', p.stamina, p.maxStamina); bar('food', p.food, 100); bar('water', p.water, 100);
-  $('#level').textContent = p.level;
-  $('#className').textContent = CLASSES[p.class].name.toUpperCase();
-  $('#xp').style.width = `${p.xp / R.xpToNext(p.level) * 100}%`;
+  put('#level', 'textContent', String(p.level));
+  put('#className', 'textContent', CLASSES[p.class].name.toUpperCase());
+  put('#xp', 'width', `${Math.round(p.xp / R.xpToNext(p.level) * 1000) / 10}%`);
   const minutes = Math.floor(state.dayTime * 24 * 60), fx = Object.keys(p.effects).filter(e => e !== 'regenRate');
-  $('#clock').textContent = `DAY ${state.day} · ${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}${p.cold && !R.warm(p) ? ' · FREEZING' : ''}${p.poison > 0 ? ' · POISONED' : ''}${fx.length ? ' · ' + fx.join(' ').toUpperCase() : ''}`;
+  put('#clock', 'textContent', `DAY ${state.day} · ${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}${p.cold && !R.warm(p) ? ' · FREEZING' : ''}${p.poison > 0 ? ' · POISONED' : ''}${fx.length ? ' · ' + fx.join(' ').toUpperCase() : ''}`);
   const alarmed = humanVillages.find(v => near(v, p, 150) && villageState.get(v.id).alarm > 0);
-  const region = `${world.placeName(p.x, p.z)} · danger ${world.danger(p.x, p.z)}${alarmed ? ' · ALARM RAISED' : ''}`;
-  if (region !== lastRegion) { lastRegion = region; $('#region').textContent = region; }
+  put('#region', 'textContent', `${world.placeName(p.x, p.z)} · danger ${world.danger(p.x, p.z)}${alarmed ? ' · ALARM RAISED' : ''}`);
   const q = R.QUESTS[p.quest];
-  $('#questTitle').textContent = q ? q.title : 'The Coven is Whole';
-  $('#questText').textContent = q ? q.text : 'You have done all the coven asked. The isle is yours.';
-  $('#questBar').style.width = `${(q ? q.progress(p) : 1) * 100}%`;
+  put('#questTitle', 'textContent', q ? q.title : 'The Coven is Whole');
+  put('#questText', 'textContent', q ? q.text : 'You have done all the coven asked. The isle is yours.');
+  put('#questBar', 'width', `${Math.round((q ? q.progress(p) : 1) * 1000) / 10}%`);
   const act = mode === 'playing' && interaction();
-  $('#prompt').innerHTML = act ? `<kbd>E</kbd>${act.label}` : '';
-  canvas.style.filter = hurtFlash > 0 ? `sepia(1) saturate(3) hue-rotate(-40deg) brightness(${1 - hurtFlash * .6})` : '';
+  put('#prompt', 'innerHTML', act ? `<kbd>E</kbd>${esc(act.label)}` : '');
   const covenHere = covenNearby();
-  $('#covenList').innerHTML = [p.class, ...p.coven].map((c, i) => `<span class="${i && !near(sisters()[i - 1] ?? p, p, COVEN_REACH) ? 'far' : ''}" style="--robe:${CLASSES[c].robe}" title="${CLASSES[c].name}">${CLASSES[c].name[0]}</span>`).join('') + `<small>COVEN ${covenHere}/4</small>`;
-  $('#spells').innerHTML = R.knownSpells(p).map((id, i) => {
+  put('#covenList', 'innerHTML', [p.class, ...p.coven].map((c, i) => `<span class="${i && !near(sisters()[i - 1] ?? p, p, COVEN_REACH) ? 'far' : ''}" style="--robe:${CLASSES[c].robe}" title="${CLASSES[c].name}">${CLASSES[c].name[0]}</span>`).join('')
+    + covenMates().map(r => `<span class="real${near(r, p, COVEN_REACH) ? '' : ' far'}" style="--robe:${CLASSES[r.cls]?.robe ?? '#555'}" title="${esc(r.name)}">${esc(r.name[0]?.toUpperCase() ?? '?')}</span>`).join('')
+    + `<small>COVEN ${covenHere}/4</small>`);
+  put('#spells', 'innerHTML', R.knownSpells(p).map((id, i) => {
     const s = SPELLS[id], blocker = R.castBlocker(p, id, covenHere), cd = p.cooldowns[id];
-    return `<div class="spell${blocker ? ' locked' : ''}" title="${s.name}${blocker ? ': ' + blocker : ''}" style="--c:${s.color}"><kbd>${i + 1}</kbd><b>${s.name}</b><small>${s.coven > 1 ? `${s.coven} witches` : `${s.mana} mana`}</small>${cd ? `<i style="height:${cd / s.cooldown * 100}%"></i>` : ''}</div>`;
-  }).join('');
-  const mates = covenMates();
-  for (const r of mates) { const el = document.createElement('span'); el.textContent = r.name[0]?.toUpperCase() ?? '?'; el.title = r.name; el.style.setProperty('--robe', CLASSES[r.cls]?.robe ?? '#555'); el.className = `real${near(r, p, COVEN_REACH) ? '' : ' far'}`; $('#covenList').insertBefore(el, $('#covenList small')); }
-  $('#netStatus').textContent = net.status === 'online' ? `ONLINE · ${net.world ?? online.world} · ${remotes.size} other${remotes.size === 1 ? '' : 's'}${online.coven ? ` · coven ‹${online.coven}›` : ''}` : net.status === 'offline' ? '' : net.status.toUpperCase() + '…';
-  const bossShown = boss && near(boss, p, 120);
-  $('#boss').classList.toggle('hidden', !bossShown);
-  if (bossShown) { $('#bossHp').style.width = `${boss.hp / BOSS.hp * 100}%`; $('#bossWard').textContent = boss.warded ? 'WARDED: cast the Grand Rite [7]' : `WARD BROKEN · ${Math.ceil(boss.wardTimer)}s`; }
+    return `<div class="spell${blocker ? ' locked' : ''}" title="${s.name}${blocker ? ': ' + blocker : ''}" style="--c:${s.color}"><kbd>${i + 1}</kbd><b>${s.name}</b><small>${s.coven > 1 ? `${s.coven} witches` : `${s.mana} mana`}</small>${cd ? `<i style="height:${Math.round(cd / s.cooldown * 20) * 5}%"></i>` : ''}</div>`;
+  }).join(''));
+  put('#netStatus', 'textContent', net.status === 'online' ? `ONLINE · ${net.world ?? online.world} · ${remotes.size} other${remotes.size === 1 ? '' : 's'}${online.coven ? ` · coven ‹${online.coven}›` : ''}` : net.status === 'offline' ? '' : net.status.toUpperCase() + '…');
+  const bossShown = !!boss && near(boss, p, 120);
+  put('#boss', 'className', bossShown ? '' : 'hidden');
+  if (bossShown) { put('#bossHp', 'width', `${Math.round(boss.hp / BOSS.hp * 1000) / 10}%`); put('#bossWard', 'textContent', boss.warded ? 'WARDED: cast the Grand Rite [7]' : `WARD BROKEN · ${Math.ceil(boss.wardTimer)}s`); }
   compass();
 }
 
 function compass() {
-  const strip = $('#compassStrip'), p = state.player, heading = Math.atan2(Math.cos(yaw), -Math.sin(yaw)), marks = [];
+  const p = state.player, heading = Math.atan2(Math.cos(yaw), -Math.sin(yaw)), marks = [];
   const place = (bearing, html, cls) => {
     const rel = ((bearing - heading + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
     if (Math.abs(rel) < Math.PI / 2) marks.push(`<span class="${cls}" style="left:${50 + rel / (Math.PI / 2) * 50}%">${html}</span>`);
@@ -558,7 +571,7 @@ function compass() {
   }
   const h = heart();
   if (h) place(Math.atan2(h.x - p.x, -(h.z - p.z)), '✦', 'home');
-  strip.innerHTML = marks.join('');
+  put('#compassStrip', 'innerHTML', marks.join(''));
 }
 
 // ---------- panels ----------
@@ -663,7 +676,7 @@ function goOnline() {
   });
 }
 const addRemote = r => remotes.set(r.id, { ...r, tx: r.x, ty: r.y, tz: r.z, walk: 0 });
-const remoteVillage = v => villages.set(v.owner, { name: v.name, list: v.list.map(b => ({ ...b, id: `${v.owner}:${b.id}` })) });
+const remoteVillage = v => { buildingsChanged(); villages.set(v.owner, { name: v.name, list: v.list.map(b => ({ ...b, id: `${v.owner}:${b.id}` })) }); };
 function hideShared(node, seconds) { if (!state.harvested[node]) { state.harvested[node] = state.clock + seconds; view.hideNode(node); } }
 function setBoss(b) {
   serverBoss = b;
@@ -677,7 +690,7 @@ function chatLine(name, text) {
   setTimeout(() => line.classList.add('old'), 15000);
 }
 net.on('welcome', m => {
-  net.world = m.world;
+  net.world = m.world; net.id = m.id;
   remotes.clear(); villages.clear();
   m.players.forEach(addRemote); m.villages.forEach(remoteVillage);
   for (const [node, seconds] of m.harvested) hideShared(node, seconds);
@@ -688,6 +701,7 @@ net.on('join', m => { addRemote(m.player); chatLine('', `${m.player.name} has en
 net.on('leave', m => { const r = remotes.get(m.id); if (r) chatLine('', `${r.name} has left.`); remotes.delete(m.id); });
 net.on('snap', m => {
   for (const o of m.players) {
+    if (o.id === net.id) continue;
     const r = remotes.get(o.id);
     if (!r) { addRemote(o); continue; }
     Object.assign(r, { ...o, x: r.x, y: r.y, z: r.z, tx: o.x, ty: o.y, tz: o.z });
@@ -710,7 +724,7 @@ net.on('chat', m => chatLine(m.name, m.text));
 net.on('error', m => toast(m.text));
 net.on('status', (status) => {
   if (status === 'reconnecting') chatLine('', 'Lost the server. Reconnecting…');
-  if (status !== 'online') { remotes.clear(); villages.clear(); }
+  if (status !== 'online') { remotes.clear(); villages.clear(); buildingsChanged(); }
 });
 
 function openChat() {
@@ -791,19 +805,36 @@ window.__coven = { net, get remotes() { return remotes; }, get villages() { retu
 if (!saved) state = null;
 const preview = freshState('wild');
 
+// Auto graphics: lower the render resolution when frames run slow, raise it again when there is headroom.
+const GFX_KEY = 'coven-gfx';
+let gfx = 'auto', frameAvg = 1 / 60, scaleTimer = 0, hudTimer = 0;
+try { gfx = localStorage.getItem(GFX_KEY) || 'auto'; } catch { /* default */ }
+$('#gfx').value = gfx; view.setQuality(gfx);
+$('#gfx').onchange = () => { gfx = $('#gfx').value; view.setQuality(gfx); try { localStorage.setItem(GFX_KEY, gfx); } catch { /* not remembered */ } };
+function autoScale(raw, dt) {
+  if (raw > .25) return; // a stall (tab switch, chunk load), not a trend
+  frameAvg += (raw - frameAvg) * .05;
+  if (gfx !== 'auto' || mode !== 'playing' || (scaleTimer -= dt) > 0) return;
+  if (frameAvg > 1 / 38 && view.scale > .5) { view.setScale(Math.max(.5, view.scale - .1)); scaleTimer = 1; }
+  else if (frameAvg < 1 / 55 && view.scale < 1) { view.setScale(Math.min(1, view.scale + .1)); scaleTimer = 3; }
+  else scaleTimer = .5;
+}
+
 function frame(now) {
-  const dt = Math.min((now - last) / 1000, .1); last = now;
+  const raw = (now - last) / 1000, dt = Math.min(raw, .1); last = now;
+  autoScale(raw, dt);
   if (mode === 'playing') { accumulator += dt; while (accumulator >= 1 / 60) { update(1 / 60); accumulator -= 1 / 60; } }
   const s = state ?? preview, p = s.player;
   if (!state) yaw += dt * .05;
-  view.stream(p.x, p.z, mode === 'playing' ? 2 : 4);
+  view.stream(p.x, p.z, mode === 'playing' ? 1 : 4);
   if (state) {
     for (const r of remotes.values()) { const k = Math.min(1, dt * 10); r.x += (r.tx - r.x) * k; r.z += (r.tz - r.z) * k; r.y += (r.ty - r.y) * k; if (r.moving) r.walk += dt * 6; }
-    const built = allBuildings(), lights = [...built.filter(b => b.type === 'campfire' || b.type === 'lantern'), ...hearthFires()];
+    const built = allBuildings(), lights = lightSources();
     view.syncRemotes([...remotes.values()], now / 1000);
     view.syncWorld({ creatures, allies, boss, buildings: built, projectiles, elders: elders(), now: now / 1000 });
     view.render({ player: p, yaw, pitch, dayTime: state.dayTime, now: now / 1000, dt, swing, toolName: R.weapon(p).name, lights, moving: moving && mode === 'playing', sight: !!p.effects.sight, glamour: !!p.effects.glamour });
-    hud();
+    put('#hurt', 'className', hurtFlash > 0 ? 'on' : '');
+    if ((hudTimer -= dt) <= 0) { hudTimer = .1; hud(); }
   } else view.render({ player: p, yaw, pitch: .25, dayTime: .3, now: now / 1000, dt, swing: 0, toolName: 'fists', lights: hearthFires(), moving: false, sight: false });
   requestAnimationFrame(frame);
 }

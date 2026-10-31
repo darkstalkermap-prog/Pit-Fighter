@@ -10,6 +10,8 @@ Built with JavaScript and Three.js (WebGL 2). Graphics are deliberately low-deta
 
 Use a desktop browser with a keyboard and mouse. Progress saves in the browser's local storage.
 
+**Graphics** (title screen): *Auto* lowers the render resolution when frames slow down and raises it again when there is headroom; *High* keeps full resolution; *Low* also shortens the view distance, for older computers.
+
 | Input | Action |
 | --- | --- |
 | WASD / Shift / Space | Move / sprint / jump |
@@ -133,6 +135,12 @@ npm start
 | `Browser/net.mjs` | WebSocket client |
 | `server/hub.mjs` | Shared-world rules: players, harvests, villages, the Unwitch, chat |
 | `server/server.mjs` | HTTP and WebSocket server |
+
+### Performance
+
+`npm run profile -- [class] [seconds] [auto|high|low]` builds an unminified copy, plays it in headless Chromium and prints frame times, draw calls, triangles and the JavaScript functions that cost the most per frame (set `CHROMIUM_PATH` to use an installed Chromium).
+
+What keeps it light: terrain heights are cached and distant chunks use fewer vertices (with skirts to hide seams); herbs, bushes and rocks are only drawn near you; landmarks and buildings are merged into one or two meshes each; nothing past the fog is drawn; campfire lights leave the shader in daylight; the HUD updates ten times a second and only touches what changed; and the server encodes each broadcast once.
 
 ### Browser test
 

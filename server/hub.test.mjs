@@ -6,7 +6,7 @@ function setup() {
   let t = 1000;
   const hub = createHub({ now: () => t });
   const join = (name, extra = {}) => {
-    const inbox = [], c = hub.connect(m => inbox.push(m));
+    const inbox = [], c = hub.connect(m => inbox.push(JSON.parse(m)));
     c.receive({ type: 'hello', name, world: 'isle', cls: 'hex', key: name, ...extra });
     return { c, inbox, last: type => inbox.filter(m => m.type === type).at(-1) };
   };
@@ -21,7 +21,7 @@ test('players in a world see each other join, move and leave', () => {
   assert.equal(a.last('join').player.coven, 'Thorns');
   b.c.receive({ type: 'state', x: 10, y: 5, z: -3, yaw: 1, hp: 50, maxHp: 90, moving: true });
   hub.tick();
-  assert.deepEqual(a.last('snap').players.map(p => [p.name, p.x, p.moving]), [['Bryony', 10, true]]);
+  assert.deepEqual(a.last('snap').players.filter(p => p.id !== a.c.id).map(p => [p.name, p.x, p.moving]), [['Bryony', 10, true]]);
   b.c.close();
   assert.equal(a.last('leave').id, b.c.id);
 });
@@ -99,7 +99,7 @@ test('chat is relayed, trimmed and rate limited', () => {
 
 test('nothing is accepted before hello', () => {
   const { hub } = setup();
-  const inbox = [], c = hub.connect(m => inbox.push(m));
+  const inbox = [], c = hub.connect(m => inbox.push(JSON.parse(m)));
   c.receive({ type: 'chat', text: 'hi' });
   c.receive({ type: 'harvest', node: 'x' });
   assert.equal(hub.worlds.size, 0);

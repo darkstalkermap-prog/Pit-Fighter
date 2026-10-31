@@ -31,7 +31,7 @@ const server = http.createServer(async (req, res) => {
 
 const wss = new WebSocketServer({ server, path: '/ws', maxPayload: 64 * 1024 });
 wss.on('connection', ws => {
-  const client = hub.connect(msg => { if (ws.readyState === 1) ws.send(JSON.stringify(msg)); });
+  const client = hub.connect(data => { if (ws.readyState === 1) ws.send(data); });
   ws.budget = 60;
   ws.isAlive = true;
   ws.on('pong', () => { ws.isAlive = true; });

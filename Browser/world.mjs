@@ -113,15 +113,18 @@ export function createWorld(seed = 1337) {
   const base = new Perlin(seed), ridge = new Perlin(seed + 1), gaps = new Perlin(seed + 2), detail = new Perlin(seed + 3), warp = new Perlin(seed + 4), pools = new Perlin(seed + 5);
 
   // Warped coordinates make region borders wander instead of following straight lines.
-  const warped = (x, z) => [x + warp.fbm(x * .0004, z * .0004, 3) * 700, z + warp.fbm(x * .0004 + 50, z * .0004 + 50, 3) * 700];
+  // Written to scratch variables rather than returned as arrays: this runs millions of times.
+  let wx = 0, wz = 0, lastRegion = 'forest';
+  const warpAt = (x, z) => { wx = x + warp.fbm(x * .0004, z * .0004, 3) * 700; wz = z + warp.fbm(x * .0004 + 50, z * .0004 + 50, 3) * 700; };
+  const regionOfWarp = () => (wx < 0 ? (wz < 0 ? 'darkforest' : 'swamp') : (wz < 0 ? 'forest' : 'meadow'));
 
-  function region(x, z) {
-    const [wx, wz] = warped(x, z);
-    return wx < 0 ? (wz < 0 ? 'darkforest' : 'swamp') : (wz < 0 ? 'forest' : 'meadow');
-  }
+  function region(x, z) { warpAt(x, z); return regionOfWarp(); }
 
+  // Also leaves the point's region in `lastRegion`, so callers that need both pay for the warp once.
   function height(x, z) {
-    const [wx, wz] = warped(x, z), tx = smoothstep(-350, 350, wx), tz = smoothstep(-350, 350, wz);
+    warpAt(x, z);
+    lastRegion = regionOfWarp();
+    const tx = smoothstep(-350, 350, wx), tz = smoothstep(-350, 350, wz);
     const R = REGIONS, mix = i => lerp(lerp(R.darkforest.terrain[i], R.forest.terrain[i], tx), lerp(R.swamp.terrain[i], R.meadow.terrain[i], tx), tz);
     const e = base.fbm(x * .0005, z * .0005, 5);
     let h = mix(0) + e * mix(1);
@@ -141,8 +144,7 @@ export function createWorld(seed = 1337) {
     return h * (1 - coast) - coast * 60;
   }
 
-  function surface(x, z, h = height(x, z)) {
-    const reg = region(x, z);
+  function surface(x, z, h = height(x, z), reg = region(x, z)) {
     if (h < WATER - .4) return 'ocean';
     const coastal = Math.max(Math.abs(x), Math.abs(z)) > HALF * .74;
     if (h < 2.5) return coastal || reg !== 'swamp' ? 'beach' : 'mud';
@@ -151,35 +153,68 @@ export function createWorld(seed = 1337) {
     return reg;
   }
 
-  function color(x, z, h) {
-    const s = surface(x, z, h), c = (REGIONS[s] ?? SURFACES[s]).ground ?? SURFACES[s].color, v = 1 + detail.noise(x * .05, z * .05) * .12;
+  function color(x, z, h, reg) {
+    const s = surface(x, z, h, reg), c = (REGIONS[s] ?? SURFACES[s]).ground ?? SURFACES[s].color, v = 1 + detail.noise(x * .05, z * .05) * .12;
     if (s === 'ocean') { const d = Math.min(1, -h / 30); return [c[0] * (1 - d * .5), c[1] * (1 - d * .4), c[2] * (1 - d * .3)]; }
     if (Math.hypot(x, z) < CROWN.radius + 10) return [.22, .18, .26];
     return [c[0] * v, c[1] * v, c[2] * v];
   }
 
+  // Heights at terrain-mesh vertices, cached: ground() is called for every walker every tick.
+  const grid = new Map(), GRID_LIMIT = 150000;
+  function gridHeight(gx, gz) {
+    const key = (gx + 4096) * 8192 + (gz + 4096);
+    let h = grid.get(key);
+    if (h === undefined) {
+      if (grid.size >= GRID_LIMIT) grid.clear();
+      h = height(gx * CELL, gz * CELL); grid.set(key, h);
+    }
+    return h;
+  }
+
   // Height of the rendered triangle mesh at (x, z), so feet land on the visible surface.
   function ground(x, z) {
     const gx = Math.floor(x / CELL), gz = Math.floor(z / CELL), fx = x / CELL - gx, fz = z / CELL - gz;
-    const x0 = gx * CELL, z0 = gz * CELL, x1 = x0 + CELL, z1 = z0 + CELL;
-    const h00 = height(x0, z0), h11 = height(x1, z1);
-    if (fx >= fz) { const h10 = height(x1, z0); return h00 + (h10 - h00) * fx + (h11 - h10) * fz; }
-    const h01 = height(x0, z1); return h00 + (h11 - h01) * fx + (h01 - h00) * fz;
+    const h00 = gridHeight(gx, gz), h11 = gridHeight(gx + 1, gz + 1);
+    if (fx >= fz) { const h10 = gridHeight(gx + 1, gz); return h00 + (h10 - h00) * fx + (h11 - h10) * fz; }
+    const h01 = gridHeight(gx, gz + 1); return h00 + (h11 - h01) * fx + (h01 - h00) * fz;
   }
 
   // Triangle mesh data for one chunk; split matches ground().
-  function chunkMesh(cx, cz) {
-    const n = SEGMENTS + 1, positions = new Float32Array(n * n * 3), colors = new Float32Array(n * n * 3), indices = new Uint32Array(SEGMENTS * SEGMENTS * 6);
+  // Triangle mesh data for one chunk; split matches ground(). `step` > 1 skips vertices for distant chunks
+  // (level of detail); a skirt hanging below every edge hides cracks where detail levels meet.
+  function chunkMesh(cx, cz, step = 1) {
+    const cols = [];
+    for (let i = 0; i < SEGMENTS; i += step) cols.push(i);
+    cols.push(SEGMENTS);
+    const n = cols.length, edge = [], SKIRT = 8;
+    for (let i = 0; i < n; i++) edge.push(i);                       // north edge, west to east
+    for (let j = 1; j < n; j++) edge.push(j * n + n - 1);           // east edge
+    for (let i = n - 2; i >= 0; i--) edge.push((n - 1) * n + i);    // south edge
+    for (let j = n - 2; j > 0; j--) edge.push(j * n);               // west edge
+    const verts = n * n + edge.length, positions = new Float32Array(verts * 3), colors = new Float32Array(verts * 3);
+    const indices = new Uint32Array((n - 1) * (n - 1) * 6 + edge.length * 12);
     for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
-      const x = cx * CHUNK + i * CELL, z = cz * CHUNK + j * CELL, h = height(x, z), k = (j * n + i) * 3, c = color(x, z, h);
+      const gx = cx * SEGMENTS + cols[i], gz = cz * SEGMENTS + cols[j], x = gx * CELL, z = gz * CELL, h = height(x, z), k = (j * n + i) * 3, c = color(x, z, h, lastRegion);
+      if (grid.size < GRID_LIMIT) grid.set((gx + 4096) * 8192 + (gz + 4096), h);
       positions[k] = x; positions[k + 1] = h; positions[k + 2] = z;
       colors[k] = c[0]; colors[k + 1] = c[1]; colors[k + 2] = c[2];
     }
+    edge.forEach((v, e) => {
+      const k = (n * n + e) * 3;
+      positions.set([positions[v * 3], positions[v * 3 + 1] - SKIRT, positions[v * 3 + 2]], k);
+      colors.set(colors.subarray(v * 3, v * 3 + 3), k);
+    });
     let k = 0;
-    for (let j = 0; j < SEGMENTS; j++) for (let i = 0; i < SEGMENTS; i++) {
+    for (let j = 0; j < n - 1; j++) for (let i = 0; i < n - 1; i++) {
       const a = j * n + i, b = a + 1, c = a + n, d = c + 1;
       indices.set([a, d, b, a, c, d], k); k += 6;
     }
+    // Skirt quads, wound both ways so they show from either side.
+    edge.forEach((v, e) => {
+      const w = edge[(e + 1) % edge.length], sv = n * n + e, sw = n * n + (e + 1) % edge.length;
+      indices.set([v, w, sw, v, sw, sv, v, sw, w, v, sv, sw], k); k += 12;
+    });
     return { positions, colors, indices };
   }
 
@@ -246,7 +281,7 @@ export function createWorld(seed = 1337) {
     const random = rng(hash(seed, cx, cz)), nodes = [];
     for (let i = 0; i < 300; i++) {
       const x = cx * CHUNK + random() * CHUNK, z = cz * CHUNK + random() * CHUNK, roll = random(), s = .75 + random() * .6, rot = random() * Math.PI * 2;
-      const h = height(x, z), table = DENSITY[surface(x, z, h)];
+      const h = height(x, z), table = DENSITY[surface(x, z, h, lastRegion)];
       if (!table || pois.some(p => { const r = p.type === 'crown' ? 140 : p.type === 'village' ? 52 : 32; return Math.abs(p.x - x) < r && Math.abs(p.z - z) < r; })) continue;
       let acc = 0;
       for (const [type, p] of Object.entries(table)) {

@@ -1,6 +1,7 @@
 // Shared-world rules for Coven multiplayer. Each world (room) relays player positions, chat and spell effects,
 // and owns the state everyone must agree on: depleted resource nodes, villages and the Unwitch.
 // Pure logic: the transport passes in a `send` function per client, which makes this testable without sockets.
+// Messages are handed to `send` already encoded as JSON, so a broadcast is encoded once, not once per player.
 
 export const LIMITS = { players: 32, name: 20, coven: 20, world: 16, chat: 200, buildings: 200 };
 export const BOSS_HP = 6000, BOSS_RESPAWN_MS = 10 * 60 * 1000, BOSS_IDLE_RESET_MS = 60 * 1000, CROWN_RANGE = 400;
@@ -21,10 +22,11 @@ export function createHub({ now = Date.now } = {}) {
   }
   const publicPlayer = p => ({ id: p.id, name: p.name, coven: p.coven, cls: p.cls, level: p.level, x: p.x, y: p.y, z: p.z, yaw: p.yaw, hp: p.hp, maxHp: p.maxHp, moving: p.moving, swing: p.swing });
   const bossState = b => ({ hp: b.hp, max: BOSS_HP, warded: now() >= b.wardUntil, wardLeft: Math.max(0, (b.wardUntil - now()) / 1000), down: now() < b.downUntil });
-  const broadcast = (world, msg, except) => { for (const p of world.players.values()) if (p !== except) p.send(msg); };
+  const broadcast = (world, msg, except) => { const data = JSON.stringify(msg); for (const p of world.players.values()) if (p !== except) p.send(data); };
 
-  function connect(send) {
-    const client = { id: nextId++, send, world: null, lastChat: 0 };
+  function connect(transport) {
+    const send = msg => transport(JSON.stringify(msg));
+    const client = { id: nextId++, send: transport, world: null, lastChat: 0 };
 
     function hello(m) {
       if (client.world) return;
@@ -126,8 +128,9 @@ export function createHub({ now = Date.now } = {}) {
       if (b.downUntil && t >= b.downUntil) { Object.assign(b, { hp: BOSS_HP, downUntil: 0, wardUntil: 0 }); broadcast(world, { type: 'boss', boss: bossState(b) }); }
       if (b.hp < BOSS_HP && !b.downUntil && t - b.lastNear > BOSS_IDLE_RESET_MS) { b.hp = BOSS_HP; b.wardUntil = 0; broadcast(world, { type: 'boss', boss: bossState(b) }); }
       if (world.players.size < 2) continue;
-      const all = [...world.players.values()].map(publicPlayer);
-      for (const p of world.players.values()) p.send({ type: 'snap', players: all.filter(o => o.id !== p.id) });
+      // One snapshot for everyone (each client skips itself), encoded once.
+      const data = JSON.stringify({ type: 'snap', players: [...world.players.values()].map(publicPlayer) });
+      for (const p of world.players.values()) p.send(data);
     }
   }
 
