@@ -310,12 +310,18 @@ function hunt(kinds, done, { budget = 1500, label = kinds.join('/'), at } = {}) 
   const t0 = S().clock, b = BESTIARY.filter(o => kinds.includes(o.id));
   const region = b[0]?.region, level = Math.min(...b.map(o => o.level));
   const ground = at ?? huntingGround(region, level);
+  let deathsAtStart = stats.deaths;
   while (!done() && S().clock - t0 < budget) {
     if (b.every(o => o.night) && !isNight()) { if (dist(ground.x, ground.z) > 60) walkTo(ground.x, ground.z, { arrive: 20, label: `${label} grounds` }); waitUntil(isNight, 900); continue; }
     const prey = C.creatures.filter(c => kinds.includes(c.kind) && c.hp > 0 && !c.remote && dist(c.x, c.z) < 260).sort((a, z) => dist(a.x, a.z) - dist(z.x, z.z))[0];
     if (prey) {
-      const d = dist(prey.x, prey.z);
+      const d = dist(prey.x, prey.z), strong = CREATURE[prey.kind].elite || CREATURE[prey.kind].level > P().level + 2;
+      // A strong foe is met rested; one that has already beaten us waits until we have grown.
+      if (strong && P().hp < P().maxHp * .9 && d > 40) { waitUntil(() => P().hp > P().maxHp * .95 && P().mana > P().maxMana * .9 || !!threat(20), 240); continue; }
+      if (strong && stats.deaths > deathsAtStart) { note(`beaten by ${CREATURE[prey.kind].name}; growing stronger first`); grind(P().level + 1); deathsAtStart = stats.deaths; continue; }
       if (d > 28) { walkTo(prey.x, prey.z, { arrive: 24, maxTime: 30, label: CREATURE[prey.kind].name }); continue; }
+      const shield = CLASSES[P().class].spells.find(id => SPELLS[id].kind === 'self');
+      if (strong && shield && ready(shield)) press(spellKey(shield));
       fightCreature(prey);
       continue;
     }
@@ -562,7 +568,7 @@ const QUEST_STEPS = [
   () => { grind(6); recruit(); },
   () => { if (!Object.values(P().equip).includes('pick') && !count('pick')) obtain('pick', 1); if (count('pick')) ui('items', '[data-equip="pick"]'); if (!S().buildings.some(b => b.type === 'altar')) build('altar'); obtain('moonDust', count('moonDust') + 1); },
   () => { grind(9); recruit(); },
-  () => { const lair = W.pois.find(o => o.type === 'lair' && o.region === home()), elite = BESTIARY.find(b => b.elite && b.region === home()); hunt([elite.id], () => P().stats.eliteKills > 0, { budget: 2400, label: elite.name, at: { x: lair.x + 30, z: lair.z + 30 } }); },
+  () => { const lair = W.pois.find(o => o.type === 'lair' && o.region === home()), elite = BESTIARY.find(b => b.elite && b.region === home()); hunt([elite.id], () => P().stats.eliteKills > 0, { budget: 4000, label: elite.name, at: { x: lair.x + 30, z: lair.z + 30 } }); },
   () => harvestSouls(3),
   // The Titan is summoned at the Crown, against the Unwitch; the same fight finishes the Grand Rite.
   () => crown(),
