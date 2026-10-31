@@ -103,3 +103,4 @@ footer{position:absolute;bottom:0;left:0;right:0;padding:12px 24px;display:flex;
 #heroCanvas{display:none;width:240px;height:380px;border:1px solid #9a6bff44;background:radial-gradient(ellipse at 50% 35%,#3a2a52,#120c1a 70%)}#pack.hero #heroCanvas{display:block;position:sticky;top:0}
 @media(max-width:760px){#pack.hero #packBody{grid-template-columns:1fr}#heroCanvas{margin:0 auto}}
 .panel.wide{width:min(1080px,96vw)}
+#region.safe{color:#c8f0c0}#region.risky{color:#f0e08a}#region.deadly{color:#ff9a8a}

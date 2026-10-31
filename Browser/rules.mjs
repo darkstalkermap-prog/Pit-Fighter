@@ -115,7 +115,7 @@ export function spellPower(p, night = false) {
   return power;
 }
 
-export const moveSpeedFactor = p => (p.class === 'bloom' ? 1.15 : 1) * (p.effects.swift ? 1.3 : 1) * (p.mounted ? ITEMS[p.equip.mount]?.speed ?? 1 : 1) * (1 + worn(p).reduce((sum, item) => sum + (item.haste ?? 0), 0) / 100);
+export const moveSpeedFactor = p => (p.class === 'bloom' ? 1.15 : 1) * (p.effects.swift ? 1.3 : 1) * (p.mounted ? (p.flying ? ITEMS[p.equip.mount]?.flySpeed : 0) || ITEMS[p.equip.mount]?.speed || 1 : 1) * (1 + worn(p).reduce((sum, item) => sum + (item.haste ?? 0), 0) / 100);
 export const poisonsOnHit = p => p.class === 'bog' || !!p.effects.venom;
 
 // Damage taken by the player after potions and spells. Returns the amount dealt.
@@ -292,7 +292,7 @@ export function captureSoul(p) {
 }
 
 // ---------- the broom ----------
-// Riding is 70% faster. A plain broom only skims the ground; the two-witch Skyward Charm enchants it for good
+// Riding is 70% faster on the ground; a Skyward Broom flies at three times walking speed (200% faster). A plain broom only skims the ground; the two-witch Skyward Charm enchants it for good
 // into a Skyward Broom, which flies on its own from then on.
 export const FLIGHT_CEILING = 150;
 export function mountBlocker(p, { swimming = false } = {}) {

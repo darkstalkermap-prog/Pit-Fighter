@@ -77,7 +77,7 @@ export const ITEMS = {
   hideGloves: { name: 'Hide Gloves', slot: 'hands', kind: 'gloves', rarity: 0, armor: 2 }, hideBoots: { name: 'Hide Boots', slot: 'feet', kind: 'boots', rarity: 0, armor: 2 },
   moonAmulet: { name: 'Moonstone Amulet', slot: 'amulet', kind: 'amulet', rarity: 1, mana: 25 },
   broom: { name: 'Witch\'s Broom', slot: 'mount', kind: 'broom', rarity: 0, speed: 1.7 },
-  skyBroom: { name: 'Skyward Broom', slot: 'mount', kind: 'broom', rarity: 2, speed: 1.7, flies: true },
+  skyBroom: { name: 'Skyward Broom', slot: 'mount', kind: 'broom', rarity: 2, speed: 1.7, flySpeed: 3, flies: true },
   bandage: { name: 'Fiber Bandage', heal: 25 },
   healing: { name: 'Healing Draught', heal: 70 },
   manaTonic: { name: 'Mana Tonic', mana: 70 },

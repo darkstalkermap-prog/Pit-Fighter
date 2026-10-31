@@ -9,10 +9,12 @@ import { ALLIES } from './creatures.mjs';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { Hero, HeroKit } from './hero.mjs';
 import { decodeLook } from './loot.mjs';
+import { Sky } from './sky.mjs';
 
 // What coven sisters and elders wear (slot → [kind, rarity]).
 const SISTER_LOOK = { head: ['hat', 2], chest: ['robe', 2], cloak: ['cloak', 2], feet: ['boots', 1], weapon: ['staff', 2] };
-const ELDER_LOOK = { head: ['hat', 3], chest: ['robe', 3], cloak: ['cloak', 3], amulet: ['amulet', 3], feet: ['boots', 2], weapon: ['staff', 3] };
+// Quest givers wear their path's revealing style: little but a crown, an amulet and a great staff.
+const ELDER_LOOK = { head: ['hat', 3], amulet: ['amulet', 3], weapon: ['staff', 3] };
 
 const MAX_CHUNK = HALF / CHUNK;
 // Graphics levels. Radii are in chunks (250 m): terrain, trees and rocks, and small plants (herbs and bushes).
@@ -22,7 +24,7 @@ export const QUALITY = {
   auto: { terrain: 3, objects: 2, small: 1, fogNear: 160, fogFar: 620, scale: 1 },
   low: { terrain: 2, objects: 1, small: 1, fogNear: 100, fogFar: 400, scale: .6 },
 };
-const DAY = new THREE.Color('#9cc1d6'), DUSK = new THREE.Color('#d08b62'), NIGHT = new THREE.Color('#141b30');
+const DAY = new THREE.Color('#9cc1d6');
 
 function painted(geometry, color, x = 0, y = 0, z = 0) {
   const g = geometry.index ? geometry.toNonIndexed() : geometry;
@@ -92,7 +94,18 @@ export class WorldView {
     water.rotation.x = -Math.PI / 2; water.position.y = .05;
     water.updateMatrix(); water.matrixAutoUpdate = false;
     this.scene.add(water);
-    this.lights = [0, 1].map(() => { const l = new THREE.PointLight(0xff9a4a, 0, 28, 1.6); this.scene.add(l); return l; });
+    this.sky = new Sky(this.scene);
+    // Firelight, faked: a warm pool on the ground and a soft glow above each nearby fire. Real point lights cost
+    // every lit pixel on screen and streaked across the flat-shaded ground.
+    const warm = new THREE.CanvasTexture((() => { const c = document.createElement('canvas'); c.width = c.height = 128; const g = c.getContext('2d'), r = g.createRadialGradient(64, 64, 0, 64, 64, 64); r.addColorStop(0, 'rgba(255,170,80,.9)'); r.addColorStop(.4, 'rgba(255,120,40,.35)'); r.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = r; g.fillRect(0, 0, 128, 128); return c; })());
+    this.fireGlows = Array.from({ length: 6 }, () => {
+      const pool = new THREE.Mesh(new THREE.CircleGeometry(9, 24), new THREE.MeshBasicMaterial({ map: warm, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, polygonOffset: true, polygonOffsetFactor: -4 }));
+      pool.rotation.x = -Math.PI / 2;
+      const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: warm, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+      halo.scale.set(6, 6, 1);
+      this.scene.add(pool, halo);
+      return { pool, halo };
+    });
     this.buildPois();
     this.resize();
     this.setQuality('auto');
@@ -152,8 +165,8 @@ export class WorldView {
 
   // ---------- characters ----------
   // A detailed witch hero. The group's userData.hero animates it (see Hero.update).
-  witch(classId, scale = 1, look = SISTER_LOOK) {
-    const hero = new Hero(this.heroKit, classId, look, { scale });
+  witch(classId, scale = 1, look = SISTER_LOOK, options = {}) {
+    const hero = new Hero(this.heroKit, classId, look, { scale, ...options });
     Object.assign(hero.root.userData, { hero, faces: 'z' });
     return hero.root;
   }
@@ -427,7 +440,7 @@ export class WorldView {
       hero.update(dt, now, { moving: moved, ...extra });
     };
     this.sync('allies', allies, a => a.ally === 'witch' ? this.witch(a.cls) : a.ally === 'fox' ? this.familiar('fox') : (() => { const s = ALLIES[a.ally]; return this.creature(a.ally === 'beast' ? 'quad' : 'biped', s.size, s.color, a.ally === 'titan' ? '#7dffd8' : '#9a6bff', { horns: true }); })(), (m, a) => { this.pose(m, a, a.riding ? 0 : a.walk, now); animate(m, a, { mounted: !!a.riding, flying: a.riding && a.y > this.world.ground(a.x, a.z) + 3 }); });
-    this.sync('elders', elders, e => this.witch(e.cls, 1.05, ELDER_LOOK), (m, e) => { this.pose(m, e, 0, now); animate(m, e); });
+    this.sync('elders', elders, e => this.witch(e.cls, 1.05, ELDER_LOOK, { revealing: true }), (m, e) => { this.pose(m, e, 0, now); animate(m, e); });
     this.sync('boss', boss ? [boss] : [], () => this.boss(), (m, b) => { this.pose(m, b, b.walk, now); m.userData.ward.visible = b.warded; m.userData.ward.rotation.y = now; });
     this.sync('buildings', buildings, b => { const g = this.building(b.type); g.position.set(b.x, b.y, b.z); g.rotation.y = b.rot ?? 0; return this.bake(g); }, () => {});
     this.sync('projectiles', projectiles, p => new THREE.Mesh(this.ball, this.mat(p.color, true)), (m, p) => m.position.set(p.x, p.y, p.z));
@@ -500,22 +513,29 @@ export class WorldView {
     this.camera.lookAt(player.x, player.y + 1.6, player.z);
 
     // Day/night: dayTime 0..1, 0.25 sunrise, 0.5 noon, 0.75 sunset.
-    const a = (dayTime - .25) * Math.PI * 2, sunH = Math.sin(a);
-    const day = THREE.MathUtils.smoothstep(sunH, -.12, .25), dusk = Math.max(0, 1 - Math.abs(sunH) / .3) * .8, see = sight ? .5 : 0;
+    const { day, dusk, sunDir, horizon } = this.sky.update(this.camera, dayTime, now, dt, player), see = sight ? .5 : 0;
     this.heroKit.setDaylight(Math.max(day, see));
-    const sky = NIGHT.clone().lerp(DAY, Math.max(day, see * .4)).lerp(DUSK, dusk * .5);
-    this.scene.background.copy(sky); this.scene.fog.color.copy(sky);
-    this.sun.intensity = .3 + 2 * day; this.hemi.intensity = .55 + 1.1 * Math.max(day, see);
-    this.sun.position.set(player.x + Math.cos(a) * 100, player.y + Math.abs(sunH) * 100 + 20, player.z + 35);
+    // The fog fades into the sky's horizon; Gloamsight lifts the darkness a little.
+    const fog = horizon.clone().lerp(DAY, see * .3 * (1 - day));
+    this.scene.background.copy(fog); this.scene.fog.color.copy(fog);
+    this.sun.intensity = .3 + 2 * day; this.hemi.intensity = .45 + 1.2 * Math.max(day, see);
+    this.hemi.color.set(day > .3 ? '#cfe3f0' : '#6a78c0'); this.hemi.groundColor.set(day > .3 ? '#4a4a32' : '#1e1a30');
+    this.sun.color.set(dusk > .4 ? '#ffb47a' : day > .1 ? '#ffe8c0' : '#9fb0ff');
+    // The light comes from the sun by day and from the moon by night.
+    const light = day > .05 ? sunDir : sunDir.clone().negate();
+    this.sun.position.set(player.x + light.x * 100, player.y + Math.abs(light.y) * 100 + 20, player.z + light.z * 100);
     this.sun.target.position.set(player.x, player.y, player.z);
 
     const near = [...lights].sort((f, g) => Math.hypot(f.x - player.x, f.z - player.z) - Math.hypot(g.x - player.x, g.z - player.z));
-    // Point lights cost every lit pixel whether or not they shine, so they leave the scene when dark (off).
-    // Only firelight within reach at dusk or night is turned on; the shader changes at most twice a day.
-    this.lights.forEach((l, i) => {
-      const f = near[i], on = !!f && day < .6 && Math.hypot(f.x - player.x, f.z - player.z) < 120;
-      l.visible = on;
-      if (on) { l.intensity = 16 + Math.sin(now * 13 + i) * 3; l.position.set(f.x, f.y + 1.5, f.z); }
+    const dark = 1 - day;
+    this.fireGlows.forEach(({ pool, halo }, i) => {
+      const f = near[i], on = !!f && dark > .05 && Math.hypot(f.x - player.x, f.z - player.z) < 200;
+      pool.visible = halo.visible = on;
+      if (!on) return;
+      const flicker = 1 + Math.sin(now * 11 + i * 3) * .06 + Math.sin(now * 23 + i) * .04;
+      pool.position.set(f.x, f.y + .25, f.z); pool.scale.setScalar(flicker);
+      halo.position.set(f.x, f.y + 1.4, f.z); halo.scale.setScalar(6 * flicker);
+      pool.material.opacity = halo.material.opacity = Math.min(1, dark * 1.3);
     });
     this.effects = this.effects.filter(e => {
       e.t += dt; e.m.scale.setScalar(e.radius * (.3 + e.t * 1.6)); e.m.material.opacity = Math.max(0, .8 - e.t * 1.4);

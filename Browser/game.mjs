@@ -28,10 +28,21 @@ catch (error) {
 function freshState(classId) {
   const p = R.newPlayer(classId, world.spawnPoint(CLASSES[classId].region));
   p.yaw = Math.atan2(world.hearthOf(CLASSES[classId].region).z - p.z, world.hearthOf(CLASSES[classId].region).x - p.x);
-  return { version: 2, player: p, clock: 0, dayTime: .3, day: 1, harvested: {}, nodeHp: {}, buildings: [], discovered: [], attuned: [], looted: [], blessedDay: {}, explored: [], elites: {}, bossHp: BOSS.hp, bossDefeated: false };
+  return { version: 3, player: p, clock: 0, dayTime: .3, day: 1, harvested: {}, nodeHp: {}, buildings: [], discovered: [], attuned: [], looted: [], blessedDay: {}, explored: [], elites: {}, bossHp: BOSS.hp, bossDefeated: false };
+}
+// Version 2 saves come from the 10 km island: move everything to the same spot on the 5 km one, and let go of
+// what was tied to old ground (depleted nodes, the explored map).
+function migrate(s) {
+  if (s?.version !== 2) return s;
+  const k = WORLD_SIZE / 10000, p = s.player;
+  for (const o of [p, p.home, ...s.buildings]) { o.x *= k; o.z *= k; }
+  p.y = world.ground(p.x, p.z); p.mounted = p.flying = false;
+  for (const b of s.buildings) b.y = world.ground(b.x, b.z);
+  Object.assign(s, { version: 3, harvested: {}, nodeHp: {}, explored: [] });
+  return s;
 }
 function loadState() {
-  try { const s = JSON.parse(localStorage.getItem(SAVE_KEY)); return s?.version === 2 && CLASSES[s.player?.class] ? s : null; } catch { return null; }
+  try { const s = migrate(JSON.parse(localStorage.getItem(SAVE_KEY))); return s?.version === 3 && CLASSES[s.player?.class] ? s : null; } catch { return null; }
 }
 function saveState() { if (state) try { localStorage.setItem(SAVE_KEY, JSON.stringify(state)); } catch { /* storage unavailable: progress lasts this session only */ } }
 
@@ -651,7 +662,10 @@ function hud() {
   const minutes = Math.floor(state.dayTime * 24 * 60), fx = Object.keys(p.effects).filter(e => e !== 'regenRate');
   put('#clock', 'textContent', `DAY ${state.day} · ${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}${p.cold && !R.warm(p) ? ' · FREEZING' : ''}${p.poison > 0 ? ' · POISONED' : ''}${p.flying ? ' · FLYING' : p.mounted ? ' · ON BROOM' : ''}${fx.length ? ' · ' + fx.join(' ').toUpperCase() : ''}`);
   const alarmed = humanVillages.find(v => near(v, p, 150) && villageState.get(v.id).alarm > 0);
-  put('#region', 'textContent', `${world.placeName(p.x, p.z)} · danger ${world.danger(p.x, p.z)}${alarmed ? ' · ALARM RAISED' : ''}`);
+  // Where you are: the place or zone, its level range, and how it suits your level (green, yellow, red).
+  const zone = world.zone(p.x, p.z), place = world.placeName(p.x, p.z), here = place === zone.name || place === REGIONS[zone.region]?.name ? zone.name : `${place} · ${zone.name}`;
+  put('#region', 'textContent', `${here} · Lv ${zone.min}–${zone.max}${alarmed ? ' · ALARM RAISED' : ''}`);
+  put('#region', 'className', p.level >= zone.min ? 'safe' : p.level >= zone.min - 2 ? 'risky' : 'deadly');
   const q = R.QUESTS[p.quest];
   put('#questTitle', 'textContent', q ? q.title : 'The Coven is Whole');
   put('#questText', 'textContent', q ? q.text : 'You have done all the coven asked. The isle is yours.');
@@ -694,7 +708,7 @@ function compass() {
 function gearText(it) {
   return [it.level && `level ${it.level}`, it.armor && `armor ${it.armor}`, it.damage && `${it.damage} damage`, it.chop && `${it.chop} wood per strike`, it.mine && `${it.mine} stone per strike`, it.power && `spells ×${it.power}`,
     it.spell && `+${it.spell}% spell power`, it.mana && `+${it.mana} max mana`, it.health && `+${it.health} max health`, it.haste && `+${it.haste}% speed`,
-    it.warm && 'keeps out the cold', it.speed && `${Math.round((it.speed - 1) * 100)}% faster`, it.speed && (it.flies ? 'flies' : 'enchant with the Skyward Charm to fly')].filter(Boolean).join(', ');
+    it.warm && 'keeps out the cold', it.speed && `${Math.round((it.speed - 1) * 100)}% faster`, it.speed && (it.flies ? `flies ${Math.round((it.flySpeed - 1) * 100)}% faster` : 'enchant with the Skyward Charm to fly')].filter(Boolean).join(', ');
 }
 // Rarity colour for an item's name: grey, green, blue, purple or gold.
 const rarityStyle = it => (it?.rarity >= 0 ? ` style="color:${RARITIES[it.rarity].color}"` : '');
@@ -768,17 +782,38 @@ function buildMapBase() {
   }
   const base = document.createElement('canvas'); base.width = base.height = size;
   base.getContext('2d').putImageData(img, 0, 0);
+  // Zones: outline each one in the colour of its danger and label it with its level range.
+  const key = new Array(size * size), sums = new Map(), ctx = base.getContext('2d');
+  for (let j = 0; j < size; j++) for (let i = 0; i < size; i++) {
+    const x = (i + .5) / size * WORLD_SIZE - HALF, z = (j + .5) / size * WORLD_SIZE - HALF;
+    if (world.height(x, z) < 0) continue;
+    const zn = world.zone(x, z), k = zn.name;
+    key[j * size + i] = k;
+    const t = sums.get(k) ?? sums.set(k, { zn, x: 0, y: 0, n: 0 }).get(k); t.x += i; t.y += j; t.n++;
+  }
+  for (let j = 1; j < size - 1; j++) for (let i = 1; i < size - 1; i++) {
+    const k = key[j * size + i];
+    if (k && (key[j * size + i + 1] !== k || key[(j + 1) * size + i] !== k)) { ctx.fillStyle = ZONE_COLORS[sums.get(k).zn.tier]; ctx.fillRect(i, j, 1, 1); }
+  }
+  mapZones = [...sums.values()].filter(t => t.n > 200).map(t => ({ ...t.zn, x: t.x / t.n / size, y: t.y / t.n / size }));
   return base;
 }
+const ZONE_COLORS = ['#7ee08acc', '#e8d36acc', '#f08a4acc', '#ff3c6ecc'];
+let mapZones = [];
 function renderMap() {
   mapBase ??= buildMapBase();
   const c = $('#mapCanvas'), ctx = c.getContext('2d'), W = c.width, scale = W / WORLD_SIZE, p = state.player, cell = W / EXPLORE, px = x => (x + HALF) * scale;
   ctx.drawImage(mapBase, 0, 0, W, W);
   ctx.fillStyle = '#0c0a10e0';
   for (let j = 0; j < EXPLORE; j++) for (let i = 0; i < EXPLORE; i++) if (!explored[j * EXPLORE + i]) ctx.fillRect(i * cell, j * cell, cell + .5, cell + .5);
-  ctx.font = '12px Georgia'; ctx.textAlign = 'center';
-  ctx.fillStyle = '#ffffff55';
-  for (const [id, r] of Object.entries(REGIONS)) ctx.fillText(r.name.toUpperCase(), W / 2 + r.quadrant[0] * W * .22, W / 2 + r.quadrant[1] * W * .36);
+  ctx.textAlign = 'center';
+  for (const [id, r] of Object.entries(REGIONS)) { ctx.font = 'bold 13px Georgia'; ctx.fillStyle = '#ffffff70'; ctx.fillText(r.name.toUpperCase(), W / 2 + r.quadrant[0] * W * .3, W / 2 + r.quadrant[1] * W * .44); }
+  ctx.font = '11px Georgia';
+  for (const zn of mapZones) {
+    ctx.fillStyle = '#000000a0'; ctx.fillText(`${zn.name} · Lv ${zn.min}–${zn.max}`, zn.x * W + 1, zn.y * W + 1);
+    ctx.fillStyle = ZONE_COLORS[zn.tier]; ctx.fillText(`${zn.name} · Lv ${zn.min}–${zn.max}`, zn.x * W, zn.y * W);
+  }
+  ctx.font = '12px Georgia';
   for (const poi of world.pois) if (state.discovered.includes(poi.id) || poi.type === 'hearth' || poi.type === 'crown') {
     const x = px(poi.x), y = px(poi.z);
     ctx.fillStyle = { circle: state.attuned.includes(poi.id) ? '#d9b8ff' : '#9a6bff', ruin: '#d6b46a', shrine: '#5fe0b0', hearth: '#ffb347', lair: '#ff6a6a', crown: '#ff3c6e', village: '#e8e0c8' }[poi.type];
@@ -990,7 +1025,7 @@ canvas.addEventListener('mousedown', e => {
 const saved = loadState();
 if (saved) { begin(saved); $('#play').innerHTML = 'CONTINUE <span>→</span>'; $('#newGame').classList.remove('hidden'); }
 else begin(freshState('wild'));
-window.__coven = { net, get remotes() { return remotes; }, get villages() { return villages; }, get state() { return state; }, world, view, get creatures() { return creatures; }, get allies() { return allies; }, get boss() { return boss; }, cast, placeBuilding, get mode() { return mode; }, spawn: (kind, x, z) => creatures.push(newCreature(kind, x, z)), loot: { generateGear, addGear }, equip: id => R.equip(state.player, id), get portrait() { return portrait; }, hit: (c, n) => damage(c, n), humanVillages, villageState, interact: () => interaction()?.act() };
+window.__coven = { net, get remotes() { return remotes; }, get villages() { return villages; }, get state() { return state; }, world, view, get creatures() { return creatures; }, get allies() { return allies; }, get boss() { return boss; }, cast, placeBuilding, get mode() { return mode; }, spawn: (kind, x, z) => creatures.push(newCreature(kind, x, z)), loot: { generateGear, addGear }, equip: id => R.equip(state.player, id), get portrait() { return portrait; }, aim: (y, p) => { yaw = y; pitch = p; }, hit: (c, n) => damage(c, n), humanVillages, villageState, interact: () => interaction()?.act() };
 // Without a save, the menu shows the world behind it but play starts at class selection.
 if (!saved) state = null;
 const preview = freshState('wild');
@@ -1023,7 +1058,7 @@ function frame(now) {
     for (const c of creatures) if (c.remote) { c.x += (c.tx - c.x) * k; c.z += (c.tz - c.z) * k; c.y += (c.ty - c.y) * k; c.hurt = Math.max(0, c.hurt - dt); }
     const built = allBuildings(), lights = lightSources();
     view.syncRemotes([...remotes.values()], now / 1000);
-    view.syncWorld({ creatures, allies, boss, buildings: built, projectiles, elders: elders(), now: now / 1000 });
+    view.syncWorld({ creatures, allies, boss, buildings: built, projectiles, elders: elders().filter(e => near(e, p, 300)), now: now / 1000 });
     view.render({ player: p, yaw, pitch, dayTime: state.dayTime, now: now / 1000, dt, swing, toolName: R.weapon(p).name, lights, moving: moving && mode === 'playing', sight: !!p.effects.sight, sprinting: !!p.sprinting, look: lookOf(p), glamour: !!p.effects.glamour, mounted: !!p.mounted, flying: !!p.flying });
     put('#hurt', 'className', hurtFlash > 0 ? 'on' : '');
     if (mode === 'pack' && tab === 'items') { portrait ??= new HeroPreview($('#heroCanvas')); portrait.show(p.class, lookOf(p), now / 1000, dt); }

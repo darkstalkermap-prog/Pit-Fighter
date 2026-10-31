@@ -1,8 +1,11 @@
-// Deterministic world generation for the 10 km island of Coven.
+// Deterministic world generation for the 5 km island of Coven.
 // All distances are metres. The world spans -HALF..HALF on x and z; y is up, sea level is 0, north is -z.
 // The island is split into four witch regions around the central Crown mountains.
+//
+// LAYOUT scales the big picture (regions, ridges, the Crown, places, danger) from the original 10 km design;
+// hills, pools and scattered resources keep their real size in metres.
 
-export const WORLD_SIZE = 10000, HALF = WORLD_SIZE / 2, CHUNK = 250, SEGMENTS = 25, CELL = CHUNK / SEGMENTS, WATER = 0;
+export const WORLD_SIZE = 5000, LAYOUT = WORLD_SIZE / 10000, HALF = WORLD_SIZE / 2, CHUNK = 250, SEGMENTS = 25, CELL = CHUNK / SEGMENTS, WATER = 0;
 export const CROWN = { x: 0, z: 0, radius: 70 };
 
 export function rng(seed) {
@@ -112,6 +115,15 @@ const START_BOUNTY = {
   forest: { oak: .14, pine: .08, bush: .2, nest: .1, rock: .12, wolfsbane: .08, elderberry: .08, fernheart: .06 },
 };
 
+// Level zones by region: the outer ring, the middle ring and the inner ring before the Crown.
+export const ZONE_LEVELS = [[1, 3], [4, 7], [8, 11], [12, 15]];
+export const ZONES = {
+  swamp: ['Mirefen Shallows', 'Rotwater Reach', 'Wyrmdeep Bog'],
+  darkforest: ['Gloam Edge', 'Hollow Night Wood', 'Mourning Thicket'],
+  meadow: ['Springvale Fields', 'Hive Hills', 'Bramble Heath'],
+  forest: ['Greenwood Glades', 'Howling Pines', 'Elderhorn Old Growth'],
+};
+
 const POI_NAMES = ['Hexmoor', 'Blackthorn Vale', 'Ravenhollow', 'Mosswick', 'Cinderfold', 'Wyrdmere', 'Gallows Rise', 'Thistledown', 'Briarwatch', 'Hollowell', 'Nightshade Fen', 'Ashgrove', 'Grimsby Barrow', 'Crowfoot Tor', 'Elderroot', 'Wolfsbane Ridge'];
 const POI_TYPES = ['circle', 'ruin', 'circle', 'shrine'];
 const VILLAGE_NAMES = { darkforest: ['Harrowgate', 'Dunmere'], forest: ['Oakhollow', 'Ashford'], swamp: ['Kettlewick', 'Saltmarsh'], meadow: ['Millbrook', 'Fairhaven'] };
@@ -126,7 +138,8 @@ export function createWorld(seed = 1337) {
   // Warped coordinates make region borders wander instead of following straight lines.
   // Written to scratch variables rather than returned as arrays: this runs millions of times.
   let wx = 0, wz = 0, lastRegion = 'forest';
-  const warpAt = (x, z) => { wx = x + warp.fbm(x * .0004, z * .0004, 3) * 700; wz = z + warp.fbm(x * .0004 + 50, z * .0004 + 50, 3) * 700; };
+  // In layout units (the original 10 km design), so borders and ridges keep their shape at any size.
+  const warpAt = (x, z) => { x /= LAYOUT; z /= LAYOUT; wx = x + warp.fbm(x * .0004, z * .0004, 3) * 700; wz = z + warp.fbm(x * .0004 + 50, z * .0004 + 50, 3) * 700; };
   const regionOfWarp = () => (wx < 0 ? (wz < 0 ? 'darkforest' : 'swamp') : (wz < 0 ? 'forest' : 'meadow'));
 
   function region(x, z) { warpAt(x, z); return regionOfWarp(); }
@@ -142,13 +155,13 @@ export function createWorld(seed = 1337) {
     // Swamp pools: shallow water dotted through the low fen.
     h -= tz * (1 - tx) * Math.max(0, pools.fbm(x * .004, z * .004, 2)) * 22;
     // Mountain ridges along the region borders, broken by passes, rising to the central Crown.
-    const border = Math.min(Math.abs(wx), Math.abs(wz)), r = Math.hypot(x, z);
+    const border = Math.min(Math.abs(wx), Math.abs(wz)), r = Math.hypot(x, z) / LAYOUT;
     const pass = smoothstep(-.05, .2, gaps.fbm(x * .0012, z * .0012, 2));
     const crest = 1 - Math.abs(ridge.fbm(x * .0015, z * .0015, 4));
     h += (1 - smoothstep(0, 420, border)) * pass * (60 + crest * crest * 160) * (1 - smoothstep(1800, 4200, r));
     h += (1 - smoothstep(150, 1300, r)) * 300 * (.7 + crest * .3);
     // Flat summit arena for the end boss.
-    const summit = 1 - smoothstep(CROWN.radius, CROWN.radius + 60, r);
+    const summit = 1 - smoothstep(CROWN.radius, CROWN.radius + 60, r * LAYOUT);
     h = lerp(h, 330, summit);
     h += detail.fbm(x * .012, z * .012, 2) * 3 * (1 - summit);
     const coast = smoothstep(.78, .97, Math.max(Math.abs(x), Math.abs(z)) / HALF);
@@ -231,7 +244,7 @@ export function createWorld(seed = 1337) {
 
   // Search outward from (x, z) for a spot that satisfies `ok(h, x, z)`.
   function findLand(x, z, ok) {
-    for (let r = 0; r < 1500; r += 20) for (let a = 0; a < Math.PI * 2; a += .4) {
+    for (let r = 0; r < 1500 * LAYOUT; r += 15) for (let a = 0; a < Math.PI * 2; a += .4) {
       const px = x + Math.cos(a) * r, pz = z + Math.sin(a) * r, h = height(px, pz);
       if (ok(h, px, pz)) return { x: px, z: pz };
     }
@@ -242,9 +255,9 @@ export function createWorld(seed = 1337) {
   const addPoi = (poi) => { pois.push({ id: pois.length, ...poi, y: ground(poi.x, poi.z) }); };
   for (const [id, reg] of Object.entries(REGIONS)) {
     const [qx, qz] = reg.quadrant;
-    const hearth = findLand(qx * 2500, qz * 2500, (h, x, z) => h > 4 && h < 60 && region(x, z) === id);
+    const hearth = findLand(qx * 2500 * LAYOUT, qz * 2500 * LAYOUT, (h, x, z) => h > 4 && h < 60 && region(x, z) === id);
     addPoi({ name: HEARTHS[id], type: 'hearth', region: id, ...hearth });
-    const lair = findLand(qx * 1250, qz * 1250, (h, x, z) => h > 4 && h < 150 && region(x, z) === id);
+    const lair = findLand(qx * 1250 * LAYOUT, qz * 1250 * LAYOUT, (h, x, z) => h > 4 && h < 150 && region(x, z) === id);
     addPoi({ name: LAIRS[id], type: 'lair', region: id, ...lair });
   }
   addPoi({ name: 'The Crown', type: 'crown', region: null, x: CROWN.x, z: CROWN.z });
@@ -253,7 +266,8 @@ export function createWorld(seed = 1337) {
   for (const [id, reg] of Object.entries(REGIONS)) {
     const [qx, qz] = reg.quadrant;
     [[qx * 3300, qz * 1500], [qx * 1500, qz * 3300]].forEach(([sx, sz], k) => {
-      const spot = findLand(sx, sz, (h, x, z) => h > 4 && h < 90 && region(x, z) === id && level(x, z) && pois.every(p => Math.hypot(p.x - x, p.z - z) > 500));
+      sx *= LAYOUT; sz *= LAYOUT;
+      const spot = findLand(sx, sz, (h, x, z) => h > 4 && h < 90 && region(x, z) === id && level(x, z) && pois.every(p => Math.hypot(p.x - x, p.z - z) > 500 * LAYOUT));
       addPoi({ name: VILLAGE_NAMES[id][k], type: 'village', region: id, ...spot, layout: villageLayout(spot.x, spot.z, rng(hash(seed, 900, k, sx)) ) });
     });
   }
@@ -262,7 +276,7 @@ export function createWorld(seed = 1337) {
     let named = 0;
     for (let tries = 0; tries < 5000 && named < POI_NAMES.length; tries++) {
       const x = (random() * 2 - 1) * HALF * .78, z = (random() * 2 - 1) * HALF * .78, h = height(x, z);
-      if (h < 5 || h > 200 || pois.some(p => Math.hypot(p.x - x, p.z - z) < 1000)) continue;
+      if (h < 5 || h > 200 || pois.some(p => Math.hypot(p.x - x, p.z - z) < 1000 * LAYOUT)) continue;
       addPoi({ name: POI_NAMES[named], type: POI_TYPES[named % POI_TYPES.length], region: region(x, z), x, z });
       named++;
     }
@@ -326,16 +340,24 @@ export function createWorld(seed = 1337) {
   // Wilder and deadlier towards the Crown: 1 at the coast, 12 at the summit.
   function danger(x, z) {
     const r = Math.hypot(x, z);
-    return Math.round(1 + 11 * (1 - smoothstep(500, 3600, r)));
+    return Math.round(1 + 11 * (1 - smoothstep(500 * LAYOUT, 3600 * LAYOUT, r)));
+  }
+
+  // Named zones with level ranges: three rings in each land, rising towards the Crown.
+  function zone(x, z) {
+    const d = danger(x, z);
+    if (d >= 12) return { name: 'The Crown', region: null, tier: 3, min: 12, max: 15 };
+    const tier = d <= 3 ? 0 : d <= 7 ? 1 : 2, reg = region(x, z);
+    return { name: ZONES[reg][tier], region: reg, tier, min: ZONE_LEVELS[tier][0], max: ZONE_LEVELS[tier][1] };
   }
 
   function placeName(x, z) {
     let best = null, d = Infinity;
     for (const p of pois) { const pd = Math.hypot(p.x - x, p.z - z); if (pd < d) { d = pd; best = p; } }
-    if (best && d < (best.type === 'crown' ? 1300 : 500)) return best.name;
+    if (best && d < (best.type === 'crown' ? 1300 * LAYOUT : 250)) return best.name;
     const s = surface(x, z);
     return REGIONS[s]?.name ?? (s === 'mud' || s === 'beach' ? `${SURFACES[s].name} · ${REGIONS[region(x, z)].name}` : SURFACES[s].name);
   }
 
-  return { seed, height, ground, region, surface, color, chunkMesh, scatter, pois, spawnPoint, hearthOf, danger, placeName };
+  return { seed, height, ground, region, surface, color, chunkMesh, scatter, pois, spawnPoint, hearthOf, danger, zone, placeName };
 }
