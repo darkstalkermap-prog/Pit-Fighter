@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createWorld, HALF, CELL, WATER, REGIONS, NODES, HUMAN_VILLAGE } from './world.mjs';
+import { createWorld, HALF, CELL, WATER, REGIONS, NODES, HUMAN_VILLAGE, WORLD_SIZE, ZONES, ZONE_LEVELS } from './world.mjs';
 import { CLASSES, SPELLS, RECIPES, BUILDINGS, ITEMS, SELL, BUY } from './data.mjs';
 import { BESTIARY, CREATURE, HUMANS } from './bestiary.mjs';
 import * as R from './rules.mjs';
@@ -17,15 +17,33 @@ test('world generation is deterministic', () => {
 });
 
 test('the island is four regions around the Crown, ringed by sea', () => {
+  assert.equal(WORLD_SIZE, 5000, 'a quarter of the old 10 km island');
   for (const [x, z] of [[HALF - 10, 0], [0, -HALF + 10], [-HALF + 10, HALF - 10]]) assert.ok(world.height(x, z) < WATER, 'edges are sea');
-  assert.equal(world.region(-3000, -3000), 'darkforest');
-  assert.equal(world.region(3000, -3000), 'forest');
-  assert.equal(world.region(-3000, 3000), 'swamp');
-  assert.equal(world.region(3000, 3000), 'meadow');
+  const q = HALF * .55;
+  assert.equal(world.region(-q, -q), 'darkforest');
+  assert.equal(world.region(q, -q), 'forest');
+  assert.equal(world.region(-q, q), 'swamp');
+  assert.equal(world.region(q, q), 'meadow');
   assert.ok(world.height(0, 0) > 250, 'Crown is a high summit');
   assert.ok(Math.abs(world.height(30, 20) - world.height(0, 0)) < 1, 'summit arena is flat');
   assert.equal(world.danger(0, 0), 12);
-  assert.equal(world.danger(2500, 2500), 1);
+  assert.equal(world.danger(HALF, HALF), 1);
+});
+
+test('the map is zoned by level: three rings in each land, then the Crown', () => {
+  assert.deepEqual(ZONE_LEVELS.flat(), [1, 3, 4, 7, 8, 11, 12, 15], 'ranges run 1 to 15 without gaps');
+  for (const id of Object.keys(REGIONS)) {
+    const h = world.hearthOf(id), z = world.zone(h.x, h.z);
+    assert.deepEqual([z.name, z.region, z.min, z.max], [ZONES[id][0], id, 1, 3], `${h.name} is in the starting zone`);
+  }
+  assert.deepEqual([world.zone(0, 0).name, world.zone(0, 0).min, world.zone(0, 0).max], ['The Crown', 12, 15]);
+  // Every creature level a place can spawn falls in its zone's range, and zones rise towards the centre.
+  for (let i = 0; i < 400; i++) {
+    const a = i * 2.39996, r = (i / 400) * HALF * .9, x = Math.cos(a) * r, z = Math.sin(a) * r, zone = world.zone(x, z), d = world.danger(x, z);
+    assert.ok(d >= zone.min && d <= zone.max, `danger ${d} inside ${zone.name} ${zone.min}-${zone.max}`);
+  }
+  const names = new Set(Object.values(ZONES).flat());
+  assert.equal(names.size, 12, 'twelve named zones');
 });
 
 test('each region has a hearth on land, a lair and its own herbs', () => {
@@ -335,7 +353,7 @@ test('old saves put on the best gear they carry', () => {
   assert.equal(R.count(p, 'hatchet'), 1);
 });
 
-test('the broom: 70% faster ridden; the two-witch Skyward Charm makes it fly for good', () => {
+test('the broom: 70% faster ridden; the two-witch Skyward Charm makes it fly for good, 200% faster', () => {
   const p = player('bloom');
   assert.match(R.mountBlocker(p), /Mount slot/);
   Object.assign(p.inv, { wood: 8, fiber: 6, feather: 4 });
@@ -356,6 +374,10 @@ test('the broom: 70% faster ridden; the two-witch Skyward Charm makes it fly for
   assert.equal(R.enchantBroom(p), true);
   assert.equal(p.equip.mount, 'skyBroom');
   assert.equal(R.flightBlocker(p), null, 'it now flies, with no second witch needed');
+  p.flying = true;
+  assert.ok(Math.abs(R.moveSpeedFactor(p) / walk - 3) < 1e-9, 'flying is 200% faster than walking');
+  p.flying = false;
+  assert.ok(Math.abs(R.moveSpeedFactor(p) / walk - 1.7) < 1e-9, 'on the ground it rides like any broom');
   p.cooldowns = {};
   assert.equal(R.castBlocker(p, 'skyward', 2), 'Your broom already flies');
   R.unequip(p, 'mount');

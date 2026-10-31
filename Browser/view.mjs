@@ -26,6 +26,48 @@ export const QUALITY = {
 };
 const DAY = new THREE.Color('#9cc1d6');
 
+// Lambert lighting worked out once per vertex instead of per pixel. Terrain and resource nodes are flat-shaded,
+// every face one flat colour, so on face normals this looks the same as the per-pixel Lambert material and
+// costs a fraction of it on weak GPUs, where the ground covers half the screen.
+function flatLambert() {
+  return new THREE.ShaderMaterial({
+    uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.lights, THREE.UniformsLib.fog]),
+    lights: true, fog: true, vertexColors: true,
+    vertexShader: `#include <common>
+#include <fog_pars_vertex>
+#include <lights_pars_begin>
+varying vec3 vLight;
+void main() {
+  #include <beginnormal_vertex>
+  #include <defaultnormal_vertex>
+  #include <begin_vertex>
+  #include <project_vertex>
+  #include <fog_vertex>
+  vec3 n = normalize(transformedNormal), irradiance = ambientLightColor;
+  #if NUM_HEMI_LIGHTS > 0
+  #pragma unroll_loop_start
+  for (int i = 0; i < NUM_HEMI_LIGHTS; i++) irradiance += getHemisphereLightIrradiance(hemisphereLights[i], n);
+  #pragma unroll_loop_end
+  #endif
+  #if NUM_DIR_LIGHTS > 0
+  #pragma unroll_loop_start
+  for (int i = 0; i < NUM_DIR_LIGHTS; i++) irradiance += saturate(dot(n, directionalLights[i].direction)) * directionalLights[i].color;
+  #pragma unroll_loop_end
+  #endif
+  vLight = color * irradiance * RECIPROCAL_PI;
+}`,
+    fragmentShader: `#include <common>
+#include <fog_pars_fragment>
+varying vec3 vLight;
+void main() {
+  gl_FragColor = vec4(vLight, 1.0);
+  #include <tonemapping_fragment>
+  #include <colorspace_fragment>
+  #include <fog_fragment>
+}`,
+  });
+}
+
 function painted(geometry, color, x = 0, y = 0, z = 0) {
   const g = geometry.index ? geometry.toNonIndexed() : geometry;
   g.translate(x, y, z);
@@ -33,6 +75,7 @@ function painted(geometry, color, x = 0, y = 0, z = 0) {
   for (let i = 0; i < n; i++) colors.set([c.r, c.g, c.b], i * 3);
   g.setAttribute('color', new THREE.BufferAttribute(colors, 3));
   g.deleteAttribute('uv');
+  g.computeVertexNormals(); // face normals: the geometry is unindexed
   return g;
 }
 
@@ -77,8 +120,8 @@ export class WorldView {
     this.scene.add(this.hemi, this.sun, this.sun.target);
 
     this.lambert = new Map();
-    this.terrainMaterial = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
-    this.nodeMaterial = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
+    this.terrainMaterial = flatLambert();
+    this.nodeMaterial = flatLambert();
     this.glowMaterial = new THREE.MeshBasicMaterial({ vertexColors: true });
     this.nodeGeometry = nodeGeometries();
     this.box = new THREE.BoxGeometry(1, 1, 1);
@@ -141,7 +184,7 @@ export class WorldView {
         g.setAttribute('color', new THREE.BufferAttribute(colors, 3));
       }
       for (const name of Object.keys(g.attributes)) if (!['position', 'normal', 'color'].includes(name)) g.deleteAttribute(name);
-      if (!g.attributes.normal) g.computeVertexNormals();
+      g.computeVertexNormals(); // face normals: lit flat (see flatLambert)
       (o.material.isMeshBasicMaterial ? glow : lit).push(g);
     });
     group.clear();
@@ -314,11 +357,13 @@ export class WorldView {
   static stepFor(d) { return d <= 1 ? 1 : d === 2 ? 2 : 5; }
 
   terrainGeometry(cx, cz, step) {
-    const data = this.world.chunkMesh(cx, cz, step), geometry = new THREE.BufferGeometry();
-    geometry.setAttribute('position', new THREE.BufferAttribute(data.positions, 3));
-    geometry.setAttribute('color', new THREE.BufferAttribute(data.colors, 3));
-    geometry.setIndex(new THREE.BufferAttribute(data.indices, 1));
-    geometry.computeVertexNormals();
+    const data = this.world.chunkMesh(cx, cz, step), indexed = new THREE.BufferGeometry();
+    indexed.setAttribute('position', new THREE.BufferAttribute(data.positions, 3));
+    indexed.setAttribute('color', new THREE.BufferAttribute(data.colors, 3));
+    indexed.setIndex(new THREE.BufferAttribute(data.indices, 1));
+    // Unindexed, so each face gets its own flat normal (see flatLambert).
+    const geometry = indexed.toNonIndexed();
+    geometry.computeVertexNormals(); geometry.computeBoundingSphere();
     return geometry;
   }
 

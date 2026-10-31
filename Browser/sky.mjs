@@ -10,14 +10,50 @@ const PALETTE = {
 };
 const C = Object.fromEntries(Object.entries(PALETTE).map(([k, v]) => [k, { zenith: new THREE.Color(v.zenith), horizon: new THREE.Color(v.horizon) }]));
 
-const VERT = `varying vec3 vDir;
+// The dome is shaded per vertex (the gradient and the wide glows round the sun and moon change slowly across the
+// sky), so each sky pixel costs next to nothing: the sky covers half the screen.
+const DOME_VERT = `uniform vec3 uZenith, uHorizon, uSunDir, uMoonDir, uSunColor;
+uniform float uNight, uDusk;
+varying vec3 vColor;
 void main() {
-  vDir = position;
+  vec3 d = normalize(position);
+  float h = d.y;
+  vec3 col = mix(uHorizon, uZenith, smoothstep(0.0, 0.6, h));
+  col = mix(col, uHorizon * 0.55, smoothstep(0.0, -0.3, h));
+  float sd = max(dot(d, uSunDir), 0.0);
+  col += uSunColor * (pow(sd, 12.0) * 0.3 + pow(sd, 4.0) * (0.12 + 0.35 * uDusk));
+  float md = max(dot(d, uMoonDir), 0.0);
+  col += vec3(0.55, 0.6, 1.0) * pow(md, 7.0) * 0.16 * uNight;
+  vColor = col;
   vec4 p = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
   gl_Position = p.xyww; // on the far plane, behind everything
 }`;
-const FRAG = `uniform vec3 uZenith, uHorizon, uSunDir, uMoonDir, uSunColor;
-uniform float uTime, uNight, uDusk;
+const DOME_FRAG = `varying vec3 vColor;
+void main() { gl_FragColor = vec4(vColor, 1.0); }`;
+
+// Stars: points on the far plane, each with its own colour and twinkle.
+const STAR_VERT = `attribute float seed;
+uniform float uTime, uNight;
+varying vec3 vColor;
+void main() {
+  float up = smoothstep(-0.05, 0.25, normalize(position).y);
+  float tw = 0.55 + 0.45 * sin(uTime * (1.5 + seed * 6.0) + seed * 60.0);
+  vColor = mix(vec3(0.7, 0.8, 1.0), vec3(1.0, 0.82, 0.7), fract(seed * 7.3)) * tw * uNight * up * 1.4;
+  gl_PointSize = 1.5 + fract(seed * 13.7) * 2.0;
+  vec4 p = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  gl_Position = p.xyww;
+}`;
+const STAR_FRAG = `varying vec3 vColor;
+void main() { vec2 c = gl_PointCoord - 0.5; gl_FragColor = vec4(vColor * smoothstep(0.5, 0.1, length(c)), 1.0); }`;
+
+// Aurora: slow ribbons of teal and violet over the northern sky, drawn only on a band of it and only at night.
+const AURORA_VERT = `varying vec3 vDir;
+void main() {
+  vDir = position;
+  vec4 p = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  gl_Position = p.xyww;
+}`;
+const AURORA_FRAG = `uniform float uTime, uNight;
 varying vec3 vDir;
 float hash(vec3 p) { p = fract(p * .3183099 + .1); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }
 float noise(vec3 x) {
@@ -28,32 +64,9 @@ float noise(vec3 x) {
 void main() {
   vec3 d = normalize(vDir);
   float h = d.y;
-  vec3 col = mix(uHorizon, uZenith, smoothstep(0.0, 0.6, h));
-  col = mix(col, uHorizon * 0.55, smoothstep(0.0, -0.3, h));
-  // The sun's halo, wide and warm at dawn and dusk.
-  float sd = max(dot(d, uSunDir), 0.0);
-  col += uSunColor * (pow(sd, 22.0) * 0.45 + pow(sd, 5.0) * (0.12 + 0.35 * uDusk));
-  // The moon's cool glow.
-  float md = max(dot(d, uMoonDir), 0.0);
-  col += vec3(0.55, 0.6, 1.0) * (pow(md, 40.0) * 0.5 + pow(md, 7.0) * 0.12) * uNight;
-  if (uNight > 0.01 && h > -0.05) {
-    float up = smoothstep(-0.05, 0.25, h);
-    // Stars: one in a few hundred cells of a fine grid, each with its own colour and twinkle.
-    vec3 p = d * 160.0, cell = floor(p);
-    float r = hash(cell);
-    if (r > 0.982) {
-      vec3 c = cell + 0.5 + (vec3(hash(cell + 1.3), hash(cell + 7.1), hash(cell + 3.7)) - 0.5) * 0.6;
-      float tw = 0.55 + 0.45 * sin(uTime * (1.5 + r * 6.0) + r * 60.0);
-      vec3 sc = mix(vec3(0.7, 0.8, 1.0), vec3(1.0, 0.82, 0.7), hash(cell + 9.0));
-      col += sc * smoothstep(0.16, 0.0, length(p - c)) * tw * uNight * up * 1.6;
-    }
-    // Aurora: slow ribbons of teal and violet in the northern half of the sky.
-    float n = noise(vec3(d.x * 2.5 + uTime * 0.015, d.y * 6.0, d.z * 2.5)) * 0.6 + noise(vec3(d.x * 7.0, d.y * 14.0 - uTime * 0.04, d.z * 7.0)) * 0.4;
-    float band = smoothstep(0.12, 0.35, h) * (1.0 - smoothstep(0.45, 0.85, h)) * smoothstep(0.1, -0.6, d.z);
-    float ribbon = smoothstep(0.45, 0.85, n);
-    col += mix(vec3(0.15, 0.95, 0.7), vec3(0.65, 0.3, 1.0), smoothstep(0.2, 0.7, h)) * ribbon * band * 0.45 * uNight;
-  }
-  gl_FragColor = vec4(col, 1.0);
+  float n = noise(vec3(d.x * 2.5 + uTime * 0.015, d.y * 6.0, d.z * 2.5)) * 0.6 + noise(vec3(d.x * 7.0, d.y * 14.0 - uTime * 0.04, d.z * 7.0)) * 0.4;
+  float band = smoothstep(0.12, 0.35, h) * (1.0 - smoothstep(0.45, 0.85, h)) * smoothstep(0.1, -0.6, d.z);
+  gl_FragColor = vec4(mix(vec3(0.15, 0.95, 0.7), vec3(0.65, 0.3, 1.0), smoothstep(0.2, 0.7, h)) * smoothstep(0.45, 0.85, n) * band * 0.45 * uNight, 1.0);
 }`;
 
 // Canvas-painted textures for the sun, moon, rune ring and glows.
@@ -122,15 +135,28 @@ export class Sky {
       uZenith: { value: new THREE.Color() }, uHorizon: { value: new THREE.Color() }, uSunColor: { value: new THREE.Color('#ffcf88') },
       uSunDir: { value: new THREE.Vector3() }, uMoonDir: { value: new THREE.Vector3() }, uTime: { value: 0 }, uNight: { value: 0 }, uDusk: { value: 0 },
     };
-    this.dome = new THREE.Mesh(new THREE.SphereGeometry(100, 32, 16), new THREE.ShaderMaterial({ uniforms: this.uniforms, vertexShader: VERT, fragmentShader: FRAG, side: THREE.BackSide, depthWrite: false }));
-    // Drawn after everything solid: the depth test then skips every pixel already covered, so the sky shader
-    // only runs where sky actually shows.
+    this.dome = new THREE.Mesh(new THREE.SphereGeometry(100, 48, 24), new THREE.ShaderMaterial({ uniforms: this.uniforms, vertexShader: DOME_VERT, fragmentShader: DOME_FRAG, side: THREE.BackSide, depthWrite: false }));
+    // Drawn after everything solid: the depth test then skips every pixel already covered.
     this.dome.renderOrder = 1000; this.dome.frustumCulled = false;
+    const stars = 1400, starPos = new Float32Array(stars * 3), seeds = new Float32Array(stars);
+    for (let i = 0; i < stars; i++) {
+      // Even over the sphere (a golden-angle spiral), the lower ones hidden by the ground anyway.
+      const y = 1 - (i + .5) / stars * 1.1, r = Math.sqrt(Math.max(0, 1 - y * y)), a = i * 2.39996;
+      starPos.set([Math.cos(a) * r * 90, y * 90, Math.sin(a) * r * 90], i * 3); seeds[i] = (Math.sin(i * 12.9898) * 43758.5453) % 1 + .0001;
+    }
+    const starGeo = new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(starPos, 3)).setAttribute('seed', new THREE.BufferAttribute(seeds.map(Math.abs), 1));
+    this.stars = new THREE.Points(starGeo, new THREE.ShaderMaterial({ uniforms: this.uniforms, vertexShader: STAR_VERT, fragmentShader: STAR_FRAG, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+    this.stars.frustumCulled = false; this.stars.renderOrder = -10;
+    // The aurora band: the northern sky between 7° and 58° up.
+    this.aurora = new THREE.Mesh(new THREE.SphereGeometry(95, 32, 6, Math.PI * 1.1, Math.PI * .8, Math.acos(.85), Math.acos(.12) - Math.acos(.85)),
+      new THREE.ShaderMaterial({ uniforms: this.uniforms, vertexShader: AURORA_VERT, fragmentShader: AURORA_FRAG, side: THREE.BackSide, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+    this.aurora.frustumCulled = false; this.aurora.renderOrder = -10;
+    scene.add(this.stars, this.aurora);
     const sprite = (map, size, color = '#fff', opacity = 1) => {
       const s = new THREE.Sprite(new THREE.SpriteMaterial({ map, color, transparent: true, opacity, depthWrite: false, fog: false, blending: THREE.AdditiveBlending }));
       s.scale.set(size, size, 1); s.renderOrder = -9; scene.add(s); return s;
     };
-    this.sunHalo = sprite(glow('rgba(255,200,120,.7)'), 260);
+    this.sunHalo = sprite(glow('rgba(255,200,120,.7)'), 220);
     this.sun = sprite(sunTexture(), 110);
     this.moonHalo = sprite(glow('rgba(170,160,255,.55)', .1), 210);
     this.runes = sprite(runeTexture(), 150, '#d8c4ff', .5);
@@ -168,17 +194,20 @@ export class Sky {
 
     // Sun and moon sit just inside the camera's far plane (which shrinks on Low graphics), sized to match.
     const k = camera.far * .68 / 450, at = (o, dir, dist, size) => { o.position.copy(camera.position).addScaledVector(dir, dist * k); o.scale.set(size * k, size * k, 1); };
-    at(this.sun, sunDir, 450, 110); at(this.sunHalo, sunDir, 455, 260);
+    at(this.sun, sunDir, 450, 110); at(this.sunHalo, sunDir, 455, 220);
     this.sun.material.rotation = now * .05;
     this.sun.visible = this.sunHalo.visible = sunH > -.2;
     this.sunHalo.material.opacity = .5 + dusk * .5;
     at(this.moon, moonDir, 440, 80); at(this.moonHalo, moonDir, 445, 280); at(this.runes, moonDir, 442, 200);
-    this.moon.visible = this.moonHalo.visible = this.runes.visible = moonDir.y > -.15;
+    this.moon.visible = moonDir.y > -.15;
+    // The halo and runes cover a lot of sky: don't draw them while they're invisible by day.
+    this.moonHalo.visible = this.runes.visible = this.moon.visible && night > .02;
     this.moon.material.opacity = .25 + night * .75;
     this.moonHalo.material.opacity = night * .9;
     this.runes.material.opacity = night * (.35 + Math.sin(now * .8) * .15);
     this.runes.material.rotation = -now * .03;
-    this.dome.position.copy(camera.position);
+    this.dome.position.copy(camera.position); this.stars.position.copy(camera.position); this.aurora.position.copy(camera.position);
+    this.stars.visible = this.aurora.visible = night > .01;
 
     // Shooting stars.
     this.nextStreak -= dt;
