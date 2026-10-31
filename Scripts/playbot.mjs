@@ -418,6 +418,14 @@ function placeAt(type, x, z) {
 function talk(x, z, label) { walkTo(x, z, { arrive: 3, label }); dismount(); aimAt(x, z); press('KeyE'); sim(.5); }
 const elderOf = cls => { const h = W.hearthOf(CLASS_REGION[cls]); return { x: h.x + 3, z: h.z + 3 }; };
 function nearestVillage() { return C.humanVillages.slice().sort((a, b) => dist(a.x, a.z) - dist(b.x, b.z))[0]; }
+const nearestGate = v => v.layout.gates.slice().sort((a, b) => dist(v.x + Math.cos(a.angle) * 40, v.z + Math.sin(a.angle) * 40) - dist(v.x + Math.cos(b.angle) * 40, v.z + Math.sin(b.angle) * 40))[0];
+// Back out through the nearest gate before the glamour fades.
+function leaveVillage(v) {
+  if (dist(v.x, v.z) > HUMAN_VILLAGE.radius + 5) return;
+  const g = nearestGate(v);
+  walkTo(v.x + Math.cos(g.angle) * 30, v.z + Math.sin(g.angle) * 30, { arrive: 4, fight: false, label: `${v.name} gate`, direct: true });
+  walkTo(v.x + Math.cos(g.angle) * 70, v.z + Math.sin(g.angle) * 70, { arrive: 6, label: `out of ${v.name}`, direct: true });
+}
 // Into a human village in a borrowed face, through a gate, to the market stall.
 function enterVillage(v) {
   const gate = v.layout.gates.slice().sort((a, b) => dist(v.x + Math.cos(a.angle) * 50, v.z + Math.sin(a.angle) * 50) - dist(v.x + Math.cos(b.angle) * 50, v.z + Math.sin(b.angle) * 50))[0];
@@ -446,6 +454,7 @@ function trade(v, sell = [], buyList = []) {
   for (const [id, k] of sell) for (let i = 0; i < k && count(id); i++) { const b = document.querySelector(`#tabBody [data-sell="${id}"]`); if (!b) break; b.click(); done++; }
   for (const [id, k] of buyList) for (let i = 0; i < k; i++) { const b = document.querySelector(`#tabBody [data-buy="${id}"]`); if (!b || b.disabled) break; b.click(); done++; }
   ensurePlaying();
+  leaveVillage(v);
   return done > 0;
 }
 function buy(item, n) {
@@ -492,11 +501,13 @@ function fightBoss() {
     const near = threat(8);
     if (near && near !== boss && near.hp > 0 && C.creatures.includes(near) && dist(near.x, near.z) < 6) { fightCreature(near, 12, true); continue; }
     aimAt(boss.x, boss.z, .1);
-    if (!titan && d < 30 && count('humanSoul') >= 3 && count('heartSigil') >= 2 && ready('titan')) { press(spellKey('titan')); titan = true; sim(.3); note('the Wyrd Titan rises against the Unwitch'); continue; }
-    if (boss.warded && d < 30 && ready('grandrite') && count('heartSigil')) { press(spellKey('grandrite')); rites++; sim(.3); continue; }
+    // Break the ward first, then raise the Titan into the opening; save mana for both.
+    if (boss.warded && d < 30 && ready('grandrite') && count('heartSigil') > (titan || count('humanSoul') < 3 ? 0 : 1)) { press(spellKey('grandrite')); rites++; sim(.3); continue; }
+    if (!titan && !boss.warded && d < 30 && count('humanSoul') >= 3 && count('heartSigil') && ready('titan')) { press(spellKey('titan')); titan = true; sim(.3); note('the Wyrd Titan rises against the Unwitch'); continue; }
+    const saving = !titan && count('humanSoul') >= 3 && P().mana < SPELLS.titan.mana + (boss.warded ? SPELLS.grandrite.mana : 0);
     if (boss.warded && !count('heartSigil')) { note(`out of Heartfire Sigils with the ward up; the Unwitch has ${Math.round(boss.hp)} hp`); break; }
     const main = CLASSES[P().class].spells[0];
-    if (ready(main) && d < 32) press(spellKey(main)); else if (d < 6) strike();
+    if (ready(main) && d < 32 && !saving) press(spellKey(main)); else if (d < 6) strike();
     if (d > 22) down('KeyW'); else up('KeyW');
     sim(.2); t += .2; lowest = Math.min(lowest, boss.hp);
   }
@@ -517,6 +528,7 @@ function harvestSouls(n) {
     walkTo(c.x, c.z, { arrive: 20, maxTime: 20, fight: false });
     fightCreature(c, 30);
   }
+  leaveVillage(v);
   return count('humanSoul') >= n;
 }
 
@@ -525,6 +537,9 @@ function crown() {
   obtain('heartSigil', 3); obtain('soulJar', 3);
   harvestSouls(3);
   obtain('healing', 5);
+  // The Crown is cold at night: a cloak, and a full store of mana before the fight.
+  if (!P().equip.cloak) { obtain('cloak', 1); if (count('cloak')) ui('items', '[data-equip="cloak"]'); }
+  waitUntil(() => P().mana >= P().maxMana * .95, 120);
   return fightBoss();
 }
 

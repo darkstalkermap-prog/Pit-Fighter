@@ -600,7 +600,7 @@ export class HeroPreview {
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping; this.renderer.toneMappingExposure = 1.1;
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(30, canvas.width / canvas.height, .1, 50);
-    this.camera.position.set(0, 1.45, 4.9); this.camera.lookAt(0, 1.35, 0);
+    this.camera.position.set(0, 1.42, 5.4); this.camera.lookAt(0, 1.33, 0);
     const key = new THREE.DirectionalLight('#fff1dc', 1.9); key.position.set(2.5, 4, 3.5);
     const fill = new THREE.DirectionalLight('#9ab8ff', .9); fill.position.set(-3, 2, 2);
     const rim = new THREE.DirectionalLight('#c89aff', 2.2); rim.position.set(-1, 3, -4);

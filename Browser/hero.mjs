@@ -155,14 +155,14 @@ export class HeroKit {
     if (!this.solos.has(material)) { const m = material.clone(); m.onBeforeCompile = heroShader; this.solos.set(material, m); }
     return this.solos.get(material);
   }
-  // Daylight dims the reflections, so heroes don't glow at night.
+  // Night dims the reflections and the fill light, so heroes don't glow in the dark.
   setDaylight(day) { for (const m of [...this.all, ...this.solos.values()]) { if (m.envMap) m.envMapIntensity = .14 + .3 * day; m.emissive?.setScalar(this.fill * (.4 + .6 * day)); } }
 }
 
 // Groups built with `fixed` set (flowers, skulls, crystal clusters) never move on their own: fold them into their
 // parent, so their parts are skinned to it.
-export function mergeStatic(node) {
-  for (const child of [...node.children]) if (child.isGroup) mergeStatic(child);
+export function foldFixed(node) {
+  for (const child of [...node.children]) if (child.isGroup) foldFixed(child);
   for (const child of [...node.children]) if (child.isGroup && child.userData.fixed) {
     child.updateMatrix();
     for (const part of [...child.children]) { part.applyMatrix4(child.matrix); node.add(part); }
@@ -233,17 +233,18 @@ export class Hero {
     this.root = new THREE.Group(); this.root.scale.setScalar(scale);
     this.phase = 0; this.sway = 0; this.lookKey = null; this.gear = []; this.spinners = [];
     this.buildBody();
-    mergeStatic(this.root);
+    foldFixed(this.root);
     this.setLook(look);
   }
 
+  // A part that moves or hides on its own (a spinning orb, a wing, the bodice under a disguise): its own bone.
   keep(mesh) { mesh.userData.keep = true; return mesh; }
   add(parent, geo, material, x = 0, y = 0, z = 0) {
     if (material.tint) { geo = paint(geo, material.tint, material.alpha); material = material.material; }
     const m = new THREE.Mesh(geo, material); m.position.set(x, y, z); parent.add(m); return m;
   }
   m(color, opts) { return this.kit.mat(color, opts); }
-  // A group that moves with its parent only (it is merged away); `moving()` marks one that animates on its own.
+  // A group that moves with its parent only (it is folded into it); `moving()` marks one that animates on its own.
   group(parent, x = 0, y = 0, z = 0) { const g = new THREE.Group(); g.position.set(x, y, z); g.userData.fixed = true; parent.add(g); return g; }
   moving(g) { g.userData.fixed = false; return g; }
   // Something that turns or bobs every frame (orbs, rune rings, butterflies).
@@ -555,7 +556,7 @@ export class Hero {
       (this.butterflies ??= []).push(fly);
     }
     if (cls === 'wild') return;
-    const g = this.held = this.moving(this.group(this.torso, .32, cls === 'bog' ? .2 : .5, cls === 'bog' ? .48 : .52));
+    const g = this.held = this.moving(this.group(this.torso, .32, cls === 'bog' ? .2 : cls === 'hex' ? .4 : .5, cls === 'bog' ? .48 : .52));
     if (cls === 'bloom') {
       this.spin(this.keep(this.add(g, new THREE.IcosahedronGeometry(.075, 3), this.m('#9cff5a', { glow: 2.4, rough: .1, opacity: .9 }))), .6, 'y', .02);
       this.keep(this.add(g, new THREE.IcosahedronGeometry(.13, 2), this.m('#b8ff6a', { glow: 1.2, opacity: .18 })));
@@ -599,7 +600,7 @@ export class Hero {
     if (look.cloak) this.cape(look.cloak[1]);
     if (look.amulet) this.amulet(look.amulet[1]);
     if (look.weapon) this.weapon(...look.weapon);
-    for (const g of this.gear) mergeStatic(g);
+    for (const g of this.gear) foldFixed(g);
     this.capeMesh = this.gear.find(g => g.userData.cape)?.userData.cape ?? null;
     bakeSkinned(this);
   }

@@ -156,7 +156,7 @@ Mount the broom with **F** to travel 70% faster; it skims over water as well as 
 
 ## Progression
 
-- **Survival:** health, mana, stamina, food and water. Cold in the high mountains (craft a Hide Cloak or stay near fire). Poison from bites.
+- **Survival:** health, mana, stamina, food and water, with a warning as hunger and thirst set in. Cook meat at any fire [E] (your Hearth has one, and a campfire can be built anywhere), pick berries from bushes, and drink at ponds or a well. Cold in the high mountains (craft a Hide Cloak or stay near fire). Poison from bites.
 - **Skills** level with use: Gathering, Herbalism, Hunting, Alchemy, Spellcraft, Building.
 - **Crafting** by hand: hatchet, pick, spear, staff, cloak, bandages.
 - **Alchemy** at your Cauldron: Healing Draught, Mana Tonic, Swiftfoot Elixir, Venom Coating, Ironbark Brew, Gloamsight Philter, Coven Ink. At a Ritual Altar: Moonstone Dust and Heartfire Sigils.

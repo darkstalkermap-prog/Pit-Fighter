@@ -816,13 +816,18 @@ function buildMapBase() {
     if (world.height(x, z) < 0) continue;
     const zn = world.zone(x, z), k = zn.name;
     key[j * size + i] = k;
-    const t = sums.get(k) ?? sums.set(k, { zn, x: 0, y: 0, n: 0 }).get(k); t.x += i; t.y += j; t.n++;
+    const t = sums.get(k) ?? sums.set(k, { zn, r: 0, n: 0 }).get(k); t.r += Math.hypot(i + .5 - size / 2, j + .5 - size / 2); t.n++;
   }
   for (let j = 1; j < size - 1; j++) for (let i = 1; i < size - 1; i++) {
     const k = key[j * size + i];
     if (k && (key[j * size + i + 1] !== k || key[(j + 1) * size + i] !== k)) { ctx.fillStyle = ZONE_COLORS[sums.get(k).zn.tier]; ctx.fillRect(i, j, 1, 1); }
   }
-  mapZones = [...sums.values()].filter(t => t.n > 200).map(t => ({ ...t.zn, x: t.x / t.n / size, y: t.y / t.n / size }));
+  // Labels sit at each ring's middle distance, turned off the diagonal where the hearths, lairs and the Crown are.
+  // The Crown's own range goes on its marker.
+  mapZones = [...sums.values()].filter(t => t.n > 200 && t.zn.region).map(t => {
+    const [qx, qz] = REGIONS[t.zn.region].quadrant, a = Math.atan2(qz, qx) + .42, r = t.r / t.n / size;
+    return { ...t.zn, x: .5 + Math.cos(a) * r, y: .5 + Math.sin(a) * r };
+  });
   return base;
 }
 const ZONE_COLORS = ['#7ee08acc', '#e8d36acc', '#f08a4acc', '#ff3c6ecc'];
@@ -845,6 +850,7 @@ function renderMap() {
     const x = px(poi.x), y = px(poi.z);
     ctx.fillStyle = { circle: state.attuned.includes(poi.id) ? '#d9b8ff' : '#9a6bff', ruin: '#d6b46a', shrine: '#5fe0b0', hearth: '#ffb347', lair: '#ff6a6a', crown: '#ff3c6e', village: '#e8e0c8' }[poi.type];
     ctx.beginPath(); ctx.arc(x, y, poi.type === 'crown' ? 8 : 5, 0, Math.PI * 2); ctx.fill();
+    if (poi.type === 'crown') { const zn = world.zone(poi.x, poi.z); ctx.fillStyle = ZONE_COLORS[zn.tier]; ctx.fillText(`${poi.name} · Lv ${zn.min}–${zn.max}`, x, y - 12); continue; }
     ctx.fillStyle = '#f2ecf8'; ctx.fillText(poi.name, x, y - 10);
   }
   for (const b of state.buildings) { ctx.fillStyle = b.type === 'heart' ? '#b98cff' : '#ff9a4a'; ctx.fillRect(px(b.x) - 2, px(b.z) - 2, 4, 4); }
