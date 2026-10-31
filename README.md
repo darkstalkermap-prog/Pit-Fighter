@@ -1,42 +1,81 @@
-# PITFALL: Arena of Blood — 3D browser game
+# Coven
 
-A low-poly, third-person medieval arena built with **JavaScript and Three.js/WebGL 2**. No Unreal Engine, account, or game installation is required.
+An open-world survival RPG in the browser. You play a witch of a broken coven on a 10 km × 10 km island. Gather, hunt and brew to survive, build a village, level your skills, and recruit three sister witches. Coven spells need two, three or four witches, and only the four-witch Grand Rite can break the ward of the Unwitch at the Crown.
 
-## Play in your browser
+Built with JavaScript and Three.js (WebGL 2). Graphics are deliberately low-detail for now — flat-shaded blocks, no shadows, a short view distance — while the mechanics are worked out.
 
-**[Play PITFALL](https://darkstalkermap-prog.github.io/Pit-Fighter/)**
+## Play
 
-Use a modern desktop browser with hardware acceleration enabled and a keyboard and mouse. Click **Enter the Arena** to capture the mouse. If mouse capture is unavailable, the left/right arrow keys turn your Knight. Escape releases the mouse and pauses the match.
+**[Play Coven](https://darkstalkermap-prog.github.io/Coven/)** (once GitHub Pages is enabled for this repository), or download `Browser/Play-Coven.html` and open it offline. It is a single self-contained file.
 
-You can also download `Browser/Play-Pitfall.html` and open that single file offline. The bundled file includes the renderer, game logic, styles, and licenses; it needs no CDN or external assets.
+Use a desktop browser with a keyboard and mouse. Progress saves in the browser's local storage.
 
 | Input | Action |
 | --- | --- |
-| WASD | Move relative to your view |
-| Mouse | Third-person camera and attack direction |
-| Left/right arrows | Alternative turning controls |
-| Left mouse, press and release | Light sword attack |
-| Hold left mouse at least 0.35 seconds, then release | Heavy attack |
-| Hold right mouse | Block attacks from the front |
-| Escape | Pause / release mouse |
+| WASD / Shift / Space | Move / sprint / jump |
+| Mouse (or ← →) | Look |
+| Left mouse | Strike, or gather from the tree, rock, bush or herb in front of you |
+| Right mouse or 1 | Your first spell |
+| 1–7 | Spells: 1–2 your class, 3–4 two-witch rites, 5–6 three-witch rites, 7 the Grand Rite |
+| E | Interact: talk, recruit, attune, rest, cook, harvest, drink |
+| Q | Eat your best food |
+| Tab / B / K / C | Pack, build, skills, coven panels (Pack · Craft · Alchemy · Build · Skills · Coven) |
+| M | World map |
+| Esc | Pause / close panel |
 
-Defeat **eight rivals in three minutes**. Three AI knights fight in the arena; all fallen fighters respawn after three seconds. Attacks and guarding consume stamina. Lower your shield and stop attacking to recover. Pillars and the arena boundary block movement; pillars also stop sword hits. The teal Knight with a golden ground ring is yours.
+## The world
 
-## Features and limits
+The island is split into four lands around the Crown, a mountain summit at its centre. Mountain ridges with passes divide the lands. Danger rises from 1 at the coast to 12 at the Crown.
 
-- Actual 3D geometry, perspective camera, lighting and shadows.
-- Third-person follow camera that shortens its distance to avoid arena walls and columns.
-- Procedural armored Knights with sword, shield and simple walk/swing animations.
-- Stone arena, spectator terraces, pillars, banners and torches.
-- Light/heavy attacks with windup, release and recovery; directional blocking and guard breaks.
-- Health, stamina, deaths, respawns, AI combat, timer, victory target and rematch.
-- Impact particles, synthesized sound, HUD and automatic pause on losing focus.
+| Land | Quadrant | Witch | Herbs |
+| --- | --- | --- | --- |
+| The Mirefen (swamp) | south-west | Bog Witch | Mirecap, Bog Myrtle, Leechweed |
+| The Gloamwood (dark forest) | north-west | Hex Witch | Nightshade, Gravemoss, Shadowcap |
+| Springvale Meadows | south-east | Bloom Witch | Sunpetal, Honeyclover, Dewbell |
+| The Greenwood (forest) | north-east | Wild Witch | Wolfsbane, Elderberry, Fernheart |
 
-This is a **single-player prototype against AI**, with one Knight class and one arena. Online multiplayer, six classes, matchmaking, professional character animation and realistic graphics remain future work. No 60 FPS hardware performance target has been established. Game logic uses a fixed simulation step; rendering uses a capped device pixel ratio to reduce GPU cost.
+Each land has a **Hearth** (class starting point, with that path's elder) and a **Lair** guarded by an elite. Stone circles (attune to make them your respawn point), ruins (one-time caches) and shrines (daily full restore) are scattered across the isle. Moonstone is mined in the Crown mountains with a Stone Pick.
+
+## Witch classes and familiars
+
+| Class | Spells | Familiar | Bonus | Ability |
+| --- | --- | --- | --- | --- |
+| Bog Witch | Leech Bolt, Miasma | Grimtoad | Immune to poison | Strikes and spells poison foes |
+| Hex Witch | Shadow Bolt, Withering Hex | Corvin the Raven | Undiscovered places show on the compass | +25% spell damage at night |
+| Bloom Witch | Sunburst, Renewal | Clover the Hare | +15% move speed | Herbs and berries yield double |
+| Wild Witch | Thorn Lash, Barkskin | Ember the Fox | +1 meat and hide from hunts | Ember fights beside you |
+
+## Creatures
+
+Ten per land (40 in all), from timid prey to hunters that only come out at night. The tenth of each land is an elite that drops **Heartfire**:
+
+- **Mirefen:** Bog Toad, Marsh Heron, Mire Leech, Mudback Boar, Fen Crawler, Will-o'-Wisp, Bog Serpent, Rotting Shambler, Moss Troll, *Grendlemaw the Fen Wyrm*
+- **Gloamwood:** Gloom Bat, Shadow Hare, Gravecrow, Duskwolf, Webweaver, Hollow Stag, Gloam Stalker, Bone Revenant, Night Hag's Shade, *Old Mournhide the Shadow Bear*
+- **Springvale:** Meadow Rabbit, Bumble Drone, Spring Deer, Gilded Pheasant, Thornback Hedgehog, Hollow Scarecrow, Highmeadow Ram, Pixie Swarm, Bramble Bull, *Queen Vesperia the Great Hornet*
+- **Greenwood:** Red Squirrel, Greenwood Deer, Wild Boar, Tusked Badger, Grey Wolf, Horned Owl, Treant Sapling, Brown Bear, Moonhowler, *Elderhorn the Ancient Stag*
+
+Creatures drop meat, hide, bone, feathers, slime, chitin, silk, venom, ectoplasm, honeycomb and the essences of their land.
+
+## Progression
+
+- **Survival:** health, mana, stamina, food and water. Cold in the high mountains (craft a Hide Cloak or stay near fire). Poison from bites.
+- **Skills** level with use: Gathering, Herbalism, Hunting, Alchemy, Spellcraft, Building.
+- **Crafting** by hand: hatchet, pick, spear, staff, cloak, bandages.
+- **Alchemy** at your Cauldron: Healing Draught, Mana Tonic, Swiftfoot Elixir, Venom Coating, Ironbark Brew, Gloamsight Philter, Coven Ink. At a Ritual Altar: Moonstone Dust and Heartfire Sigils.
+- **Village:** found it with a Village Heart, then build within 60 m: Cauldron, Witch Hut (rest and respawn), Well, Herb Garden (grows homeland herbs), Warding Totem (beasts stay away), Ritual Altar, Palisade walls and Lantern Posts. Campfires can go anywhere.
+- **The coven:** recruit the elder of each other path at her Hearth: the first at level 3, the second at level 6, the third at level 9, each for a potion gift. Sisters follow you and fight with their own spells.
+- **Coven rites:** Summon Beast and Binding Circle (2 witches, Coven Ink), Storm of the Three and Call the Guardian (3 witches, Moonstone Dust), the Grand Rite (4 witches, Heartfire Sigil).
+- **The end:** the Unwitch at the Crown takes only 10% damage until a Grand Rite cast within reach shatters her ward for 25 seconds.
+
+A twelve-step quest line guides the way from first gathering to the Grand Rite.
+
+## Current limits
+
+This is a **single-player prototype**. Coven sisters are AI companions; real multiplayer covens need a game server and are future work. Graphics are placeholder-level. Balance numbers are first guesses.
 
 ## Development
 
-Requires Node.js 24. Python 3 is used only by the optional development server.
+Requires Node.js 24 (22 works locally).
 
 ```sh
 npm ci
@@ -45,11 +84,19 @@ npm run build
 npm start
 ```
 
-`npm start` rebuilds the game and serves `_site` on port 8000. Open the local server in your browser. Do not open `Browser/index.html` directly: it is a build template whose source module imports are resolved by the bundler.
+`npm start` rebuilds and serves `_site` on port 8000. Do not open `Browser/index.html` directly; it is the build template. `npm run build` writes `Browser/Play-Coven.html` and `_site/index.html`.
 
-`npm run build` produces both the standalone `Browser/Play-Pitfall.html` and the GitHub Pages `_site/index.html`. Run it after source changes before sharing the file. Dependencies are pinned in `package-lock.json`; Three.js's MIT license is embedded in the generated HTML.
+| File | Contents |
+| --- | --- |
+| `Browser/world.mjs` | Deterministic terrain, regions, points of interest, resource scatter |
+| `Browser/data.mjs` | Classes, familiars, spells, items, recipes, buildings, skills |
+| `Browser/bestiary.mjs` | The 40 creatures and the boss |
+| `Browser/rules.mjs` | Inventory, skills, crafting, alchemy, building, needs, magic, coven, quests |
+| `Browser/creatures.mjs` | Creature and ally behaviour |
+| `Browser/view.mjs` | Three.js rendering |
+| `Browser/game.mjs` | Game loop, input, HUD and panels |
 
-### Browser validation
+### Browser test
 
 ```sh
 npx playwright install --with-deps chromium
@@ -57,25 +104,4 @@ npm run build
 npm run test:browser
 ```
 
-To use an installed Chromium instead, set `CHROMIUM_PATH` to its executable for the test command. The smoke test starts its own local HTTP server, verifies WebGL 2 at the repository's Pages subpath, starts a match, exercises movement/turn inputs, heavy attack, stamina, blocking, and pause/resume, and fails on browser errors. Screenshots are written to `test-results/`. Headless testing uses software rendering; it does not measure performance on a gaming PC.
-
-### Project layout
-
-| File | Purpose |
-| --- | --- |
-| `Browser/combat.mjs` | Combat rules, resources, damage and collision |
-| `Browser/game.mjs` | Input, AI, fixed-step simulation, match flow and HUD |
-| `Browser/view3d.mjs` | Three.js arena, Knight models, camera, lighting and effects |
-| `Browser/index.html`, `Browser/style.css` | Menu and HUD |
-| `Browser/combat.test.mjs` | Combat regression tests |
-| `Scripts/build_browser.mjs` | esbuild bundling and standalone/site generation |
-| `Scripts/browser_smoke.mjs` | Playwright browser validation |
-| `.github/workflows/pages.yml` | Install, test, build and publish |
-
-## GitHub Pages
-
-Recommended configuration: **Settings → Pages → Source → GitHub Actions**. Push or merge into `main`, then wait for **Deploy browser game to GitHub Pages** to finish. The workflow uploads only `_site`, with the game at its root.
-
-If the repository instead uses **Deploy from a branch**, choose **main / (root)**. The root `index.html` forwards visitors directly to the committed standalone game. This fallback ensures the root URL also works with branch-based Pages publication.
-
-Each visitor plays a separate local match. GitHub Pages serves the game files; it does not host a multiplayer game server.
+Set `CHROMIUM_PATH` to use an installed Chromium. The test serves the game at the Pages subpath, picks a class, walks, builds a village, brews at the cauldron, checks coven-spell gating, hunts a wolf with spells, opens the map, and breaks the Unwitch's ward with a four-witch Grand Rite. It fails on any browser error. Screenshots go to `test-results/`.

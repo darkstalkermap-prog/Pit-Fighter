@@ -1,4 +1,4 @@
-name: Deploy browser game to GitHub Pages
+name: Deploy Coven to GitHub Pages
 
 on:
   push:
@@ -30,13 +30,13 @@ jobs:
           node-version: '24'
       - name: Install locked dependencies
         run: npm ci
-      - name: Test combat
+      - name: Unit tests
         run: npm test
-      - name: Build standalone 3D site
+      - name: Build standalone site
         run: npm run build
       - name: Install test browser
         run: npx playwright install --with-deps chromium
-      - name: Test 3D browser game
+      - name: Browser smoke test
         run: npm run test:browser
       - uses: actions/upload-pages-artifact@v3
         with:

@@ -1,9 +1,9 @@
 {
-  "name": "pitfall-browser-prototype",
+  "name": "coven-browser",
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test combat.test.mjs",
+    "test": "node --test coven.test.mjs",
     "start": "npm --prefix .. start"
   }
 }

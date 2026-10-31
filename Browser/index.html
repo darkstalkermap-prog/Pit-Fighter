@@ -1,10 +1,46 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Crect width=%2732%27 height=%2732%27 fill=%27%23151d19%27/%3E%3Ctext x=%277%27 y=%2725%27 fill=%27%23c4a166%27 font-size=%2726%27%3EP%3C/text%3E%3C/svg%3E"><title>PITFALL · The Blood Pit</title><link rel="stylesheet" href="style.css"></head><body>
-<canvas id="arena" aria-label="3D third-person arena game controlled using WASD and mouse"></canvas>
-<header><a class="brand" href="./">PITFALL<span>ARENA OF BLOOD</span></a><div class="tag">3D PROTOTYPE <i></i> BROWSER ARENA</div><button id="pause">PAUSE <kbd>ESC</kbd></button></header>
-<div id="match"><span>THE BLOOD PIT</span><strong id="timer">03:00</strong><small id="score">0 / 8 ELIMINATIONS</small></div>
-<div id="crosshair">+</div><div id="lookHint">MOUSE LOOK · WASD MOVE</div>
-<div id="feed" aria-live="polite"></div>
-<section id="hud"><div class="crest">♜</div><div class="vitals"><div class="label">KNIGHT <span id="healthText">150 / 150</span></div><div class="bar"><div id="health"></div></div><div class="bar stamina"><div id="stamina"></div></div><div class="label subtle">STAMINA <span id="staminaText">100</span></div></div><div id="status">READY</div></section>
-<footer><span><kbd>W A S D</kbd> MOVE</span><span><kbd>MOUSE</kbd> LOOK</span><span><kbd>LMB</kbd> ATTACK · HOLD FOR HEAVY</span><span><kbd>RMB</kbd> BLOCK</span></footer>
-<div id="overlay"><div class="menu"><div class="eyebrow">A KNIGHT. A SWORD. NO WAY OUT.</div><h1>THE BLOOD<br><em>PIT</em></h1><p id="description">Step into a 3D stone arena. Take up your sword and shield against three rival knights. Timing wins fights.</p><div class="rules"><span>01 <b>8 eliminations to win</b></span><span>02 <b>3 minutes on the clock</b></span><span>03 <b>Guard your stamina</b></span></div><button id="play">ENTER THE ARENA <span>→</span></button><small id="notice">3D • Single-player • Keyboard & mouse • No install</small></div></div>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Crect width=%2732%27 height=%2732%27 rx=%276%27 fill=%27%23140f1c%27/%3E%3Cpath d=%27M16 4 L22 22 H10 Z%27 fill=%27%237d3cff%27/%3E%3Crect x=%276%27 y=%2722%27 width=%2720%27 height=%273%27 fill=%27%237d3cff%27/%3E%3C/svg%3E">
+<title>Coven</title><link rel="stylesheet" href="style.css"></head><body>
+<canvas id="world" aria-label="3D open world. WASD to move, mouse to look"></canvas>
+
+<div id="compass"><div id="compassStrip"></div><div class="needle"></div></div>
+<div id="region"></div>
+<div id="toast" aria-live="polite"></div>
+<div id="prompt"></div>
+<div id="crosshair"></div>
+<div id="clock"></div>
+<div id="coven"><div id="covenList"></div></div>
+<div id="boss" class="hidden"><div class="eyebrow">THE UNWITCH</div><div class="bar"><div id="bossHp" class="fill hp"></div></div><small id="bossWard"></small></div>
+
+<aside id="quest"><div class="eyebrow">THE COVEN BIDS</div><h3 id="questTitle"></h3><p id="questText"></p><div class="meter"><div id="questBar"></div></div></aside>
+
+<section id="hud">
+ <div class="level"><span id="level">1</span><small id="className">WITCH</small></div>
+ <div class="bars">
+  <div class="row"><label>HEALTH</label><div class="bar"><div id="hp" class="fill hp"></div></div><span id="hpText"></span></div>
+  <div class="row"><label>MANA</label><div class="bar"><div id="mp" class="fill mp"></div></div><span id="mpText"></span></div>
+  <div class="row"><label>STAMINA</label><div class="bar"><div id="st" class="fill st"></div></div><span id="stText"></span></div>
+  <div class="row"><label>FOOD</label><div class="bar"><div id="food" class="fill food"></div></div><span id="foodText"></span></div>
+  <div class="row"><label>WATER</label><div class="bar"><div id="water" class="fill water"></div></div><span id="waterText"></span></div>
+  <div class="xp"><div id="xp"></div></div>
+ </div>
+</section>
+<div id="spells"></div>
+<footer><span><kbd>WASD</kbd> move</span><span><kbd>SHIFT</kbd> sprint</span><span><kbd>SPACE</kbd> jump</span><span><kbd>LMB</kbd> strike / gather</span><span><kbd>RMB</kbd> or <kbd>1</kbd>–<kbd>7</kbd> spells</span><span><kbd>E</kbd> interact</span><span><kbd>Q</kbd> eat</span><span><kbd>TAB</kbd> pack</span><span><kbd>B</kbd> build</span><span><kbd>K</kbd> skills</span><span><kbd>C</kbd> coven</span><span><kbd>M</kbd> map</span></footer>
+
+<section id="pack" class="panel hidden"><div class="panelHead"><div id="tabs"><button data-tab="items">PACK</button><button data-tab="craft">CRAFT</button><button data-tab="alchemy">ALCHEMY</button><button data-tab="build">BUILD</button><button data-tab="skills">SKILLS</button><button data-tab="coven">COVEN</button></div><button data-close>CLOSE <kbd>ESC</kbd></button></div><div id="tabBody"></div></section>
+
+<section id="map" class="panel hidden"><div class="panelHead"><h2>The Isle</h2><button data-close>CLOSE <kbd>M</kbd></button></div><canvas id="mapCanvas" width="640" height="640"></canvas><p class="hint">Four lands around the Crown. Hearths ⌂ and the Crown ♛ are always known; other places appear once found.</p></section>
+
+<section id="classes" class="hidden"><div class="classWrap"><div class="eyebrow">CHOOSE YOUR PATH</div><h2>Which witch are you?</h2><p class="hint">You begin at your homeland's hearth. Sisters of the other three paths can join your coven later.</p><div id="classCards"></div><button id="classBack" class="ghost">← BACK</button></div></section>
+
+<div id="overlay"><div class="menu">
+ <div class="eyebrow">AN OPEN-WORLD SURVIVAL RPG</div>
+ <h1>COVEN</h1>
+ <p id="description">The coven broke when the Unwitch rose at the Crown. Choose your path, survive the wild, master herb and spell, raise a village, and gather three sisters. Only four witches together can end her.</p>
+ <div class="rules"><span>Four lands, four witch paths, 40 creatures</span><span>Alchemy, skills, familiars and a village to build</span><span>Coven rites need two, three or four witches</span></div>
+ <button id="play">BEGIN <span>→</span></button>
+ <button id="newGame" class="ghost hidden">START A NEW LIFE</button>
+ <small id="notice">Single-player prototype with AI coven sisters · Low-detail graphics · Progress saves in this browser</small>
+</div></div>
 <script type="module" src="game.mjs"></script></body></html>

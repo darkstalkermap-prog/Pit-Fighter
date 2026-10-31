@@ -1,8 +1,8 @@
 {
-  "name": "pitfall-arena",
+  "name": "coven",
   "version": "0.1.0",
   "private": true,
-  "description": "3D third-person medieval arena combat for web browsers",
+  "description": "Open-world survival RPG of witches, alchemy and covens for web browsers",
   "scripts": {
     "test": "npm --prefix Browser test",
     "build": "node Scripts/build_browser.mjs",
