@@ -1,10 +1,11 @@
 import { createWorld, HALF, WORLD_SIZE, NODES, REGIONS, CROWN, HUMAN_VILLAGE } from './world.mjs';
-import { WorldView } from './view.mjs';
+import { WorldView, HeroPreview } from './view.mjs';
 import { CLASSES, SPELLS, ITEMS, RECIPES, BUILDINGS, SKILLS, VILLAGE_RADIUS, SELL, BUY, COVEN_SPELLS, SLOTS } from './data.mjs';
 import { CREATURE, BESTIARY, BOSS, ELITE_RESPAWN } from './bestiary.mjs';
 import * as R from './rules.mjs';
 import { makeCreature, pickCreature, updateCreature, hurtCreature, makeAlly, updateAlly, ALLIES } from './creatures.mjs';
 import { Net, defaultServer } from './net.mjs';
+import { RARITIES, dropGear, generateGear, addGear, registerGear, salvage, lookOf, encodeLook } from './loot.mjs';
 
 const SAVE_KEY = 'coven-save-v2', ONLINE_KEY = 'coven-online', DAY_LENGTH = 1200, NODE_RESPAWN = 600, EXPLORE = 64, MAX_CREATURES = 16, COVEN_REACH = 25;
 const REGION_CLASS = { swamp: 'bog', darkforest: 'hex', meadow: 'bloom', forest: 'wild' };
@@ -41,6 +42,7 @@ let yaw = 0, pitch = .3, swing = 0, swingCooldown = 0, last = 0, accumulator = 0
 
 function begin(s) {
   state = s; buildingsChanged();
+  registerGear(state.player);
   R.ensureEquip(state.player);
   const p = state.player;
   explored = new Uint8Array(EXPLORE * EXPLORE);
@@ -57,9 +59,11 @@ function begin(s) {
 }
 
 // ---------- messages ----------
-function toast(text, big = false) {
+// `rarity` (0-4) colours the message like the item it announces.
+function toast(text, big = false, rarity = null) {
   const el = document.createElement('div');
   el.textContent = text; if (big) el.className = 'big';
+  if (rarity !== null) el.style.color = RARITIES[rarity].color;
   $('#toast').prepend(el);
   while ($('#toast').children.length > 5) $('#toast').lastChild.remove();
   setTimeout(() => el.remove(), 4500);
@@ -285,7 +289,7 @@ function damage(target, amount, opts = {}, fromPlayer = true) {
     state.bossHp = boss.hp;
     if (boss.hp <= 0) {
       boss = null; state.bossDefeated = true; p.stats.boss = 1;
-      toast('The Unwitch is unmade. The coven is whole again.', true); reward(BOSS.xp); quests(); saveState();
+      toast('The Unwitch is unmade. The coven is whole again.', true); bossLoot(); reward(BOSS.xp); quests(); saveState();
     }
     return;
   }
@@ -311,6 +315,14 @@ function died(c) {
   slain(c, b);
 }
 
+// The Unwitch leaves two pieces, purple or gold, for everyone who stood at the Crown.
+function bossLoot() {
+  for (let i = 0; i < 2; i++) {
+    const gear = generateGear(BOSS.level, { region: 'crown', boss: true });
+    addGear(state.player, gear); toast(`${RARITIES[gear.rarity].name}: ${gear.name}`, true, gear.rarity);
+  }
+}
+
 function slain(c, b) {
   const p = state.player;
   c.hp = 0; c.dead = true;
@@ -318,6 +330,8 @@ function slain(c, b) {
   p.stats.kills++;
   if (b.elite) { p.stats.eliteKills++; state.elites[b.region] = state.clock + ELITE_RESPAWN; toast(`${b.name} has fallen!`, true); }
   toast(`${b.name} slain. ${Object.entries(loot).map(([id, n]) => `+${n} ${ITEMS[id].name}`).join(', ')}`);
+  const gear = dropGear(b);
+  if (gear) { addGear(p, gear); toast(`${RARITIES[gear.rarity].name}: ${gear.name} (level ${gear.level})`, gear.rarity >= 3, gear.rarity); }
   trained('hunting', R.train(p, 'hunting', b.level * 4 + (b.elite ? 80 : 0)));
   if (b.human) toast(R.captureSoul(p) ? 'A soul is drawn into your Soul Jar.' : 'A soul slips away. Carry an empty Soul Jar to capture it.');
   reward(b.xp); quests();
@@ -351,7 +365,7 @@ function bolt(from, target, amount, color, opts = {}, fromPlayer = true) {
 function cast(index) {
   const p = state.player, id = R.knownSpells(p)[index];
   if (!id || p.hp <= 0) return;
-  const s = SPELLS[id], blocker = R.castBlocker(p, id, covenNearby());
+  const s = SPELLS[id], blocker = R.castBlocker(p, id, covenNearby(), { solo: !net.online });
   if (blocker) { toast(`${s.name}: ${blocker}`); return; }
   if (s.kind === 'glamour') {
     const v = humanVillages.find(o => near(o, p, 150) && villageState.get(o.id).alarm > 0);
@@ -613,7 +627,7 @@ function update(dt) {
   if (netTimer <= 0 && net.online) {
     netTimer = .1;
     const p = state.player, r = v => Math.round(v * 100) / 100;
-    const msg = { type: 'state', x: r(p.x), y: r(p.y), z: r(p.z), yaw: r(p.yaw), hp: Math.ceil(p.hp), maxHp: p.maxHp, level: p.level, cls: p.class, moving, swing: r(swing), mounted: !!p.mounted };
+    const msg = { type: 'state', x: r(p.x), y: r(p.y), z: r(p.z), yaw: r(p.yaw), hp: Math.ceil(p.hp), maxHp: p.maxHp, level: p.level, cls: p.class, moving, swing: r(swing), mounted: !!p.mounted, look: encodeLook(lookOf(p)) };
     const key = JSON.stringify(msg);
     // Idle witches send nothing new except a once-a-second heartbeat.
     if (key !== lastSent || (heartbeat -= .1) <= 0) { net.send(msg); lastSent = key; heartbeat = 1; }
@@ -649,7 +663,7 @@ function hud() {
     + covenMates().map(r => `<span class="real${near(r, p, COVEN_REACH) ? '' : ' far'}" style="--robe:${CLASSES[r.cls]?.robe ?? '#555'}" title="${esc(r.name)}">${esc(r.name[0]?.toUpperCase() ?? '?')}</span>`).join('')
     + `<small>COVEN ${covenHere}/4</small>`);
   put('#spells', 'innerHTML', R.knownSpells(p).map((id, i) => {
-    const s = SPELLS[id], blocker = R.castBlocker(p, id, covenHere), cd = p.cooldowns[id];
+    const s = SPELLS[id], blocker = R.castBlocker(p, id, covenHere, { solo: !net.online }), cd = p.cooldowns[id];
     return `<div class="spell${blocker ? ' locked' : ''}" title="${s.name}${blocker ? ': ' + blocker : ''}" style="--c:${s.color}"><kbd>${i + 1}</kbd><b>${s.name}</b><small>${s.coven > 1 ? `${s.coven} witches` : `${s.mana} mana`}</small>${cd ? `<i style="height:${Math.round(cd / s.cooldown * 20) * 5}%"></i>` : ''}</div>`;
   }).join(''));
   const where = net.mode === 'host' ? `HOSTING · CODE ${net.code}` : net.mode === 'join' ? `GAME ${net.code}` : `ONLINE · ${net.world ?? online.world}`;
@@ -678,20 +692,32 @@ function compass() {
 
 // ---------- panels ----------
 function gearText(it) {
-  return [it.armor && `armor ${it.armor}`, it.damage && `${it.damage} damage`, it.chop && `${it.chop} wood per strike`, it.mine && `${it.mine} stone per strike`, it.power && `spells ×${it.power}`,
-    it.mana && `+${it.mana} max mana`, it.warm && 'keeps out the cold', it.speed && `${Math.round((it.speed - 1) * 100)}% faster`, it.speed && (it.flies ? 'flies' : 'enchant with the Skyward Charm to fly')].filter(Boolean).join(', ');
+  return [it.level && `level ${it.level}`, it.armor && `armor ${it.armor}`, it.damage && `${it.damage} damage`, it.chop && `${it.chop} wood per strike`, it.mine && `${it.mine} stone per strike`, it.power && `spells ×${it.power}`,
+    it.spell && `+${it.spell}% spell power`, it.mana && `+${it.mana} max mana`, it.health && `+${it.health} max health`, it.haste && `+${it.haste}% speed`,
+    it.warm && 'keeps out the cold', it.speed && `${Math.round((it.speed - 1) * 100)}% faster`, it.speed && (it.flies ? 'flies' : 'enchant with the Skyward Charm to fly')].filter(Boolean).join(', ');
+}
+// Rarity colour for an item's name: grey, green, blue, purple or gold.
+const rarityStyle = it => (it?.rarity >= 0 ? ` style="color:${RARITIES[it.rarity].color}"` : '');
+// One number to compare two pieces for the same slot.
+const gearScore = it => !it ? 0 : (it.armor ?? 0) + (it.damage ?? 0) * .6 + ((it.power ?? 1) - 1) * 100 + (it.spell ?? 0) * 1.5 + (it.mana ?? 0) * .3 + (it.health ?? 0) * .3 + (it.haste ?? 0) * 1.2 + (it.chop ?? 0) + (it.mine ?? 0);
+function compare(p, it) {
+  if (!it.slot || it.slot === 'mount' || it.slot === 'tool') return '';
+  const diff = gearScore(it) - gearScore(ITEMS[p.equip[it.slot]]);
+  return Math.abs(diff) < .5 ? '' : diff > 0 ? ' <b class="up">▲</b>' : ' <b class="down">▼</b>';
 }
 function needsText(p, needs) { return Object.entries(needs).map(([id, n]) => `<span class="${R.count(p, id) < n ? 'short' : ''}">${n} ${ITEMS[id].name}</span>`).join(' · '); }
 function renderPack() {
   const p = state.player, st = stations();
   document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+  $('#pack').classList.toggle('hero', tab === 'items');
   let html = '';
   if (tab === 'items') {
-    const items = Object.entries(p.inv).sort(([a], [b]) => (ITEMS[b].slot ? 1 : 0) - (ITEMS[a].slot ? 1 : 0) || ITEMS[a].name.localeCompare(ITEMS[b].name));
+    const rank = id => (ITEMS[id].slot ? 10 + (ITEMS[id].rarity ?? 0) : 0);
+    const items = Object.entries(p.inv).sort(([a], [b]) => rank(b) - rank(a) || ITEMS[a].name.localeCompare(ITEMS[b].name));
     const w = R.weapon(p), cut = Math.round((1 - R.armorFactor(p)) * 100);
     html = `<p class="hint">Armor ${R.armor(p)} (${cut}% less damage taken) · Strike ${Math.round(w.damage)} · Spell power ×${R.spellPower(p).toFixed(2)}${R.warm(p) ? ' · Warm' : ''}</p>
-      <div class="slots">${Object.entries(SLOTS).map(([slot, label]) => { const id = p.equip[slot]; return `<div class="slot${id ? '' : ' empty'}"><small>${label}</small><b>${id ? ITEMS[id].name : '—'}</b>${id ? `<em>${gearText(ITEMS[id])}</em><button data-unequip="${slot}">REMOVE</button>` : ''}</div>`; }).join('')}</div>
-      <h4>Pack</h4>${items.length ? `<ul>${items.map(([id, n]) => { const it = ITEMS[id], usable = it.food || it.heal || it.mana || it.effect; return `<li><span>${it.name} <small>× ${n}${it.herb ? ` · herb of ${REGIONS[it.herb].name}` : ''}${it.slot ? ` · ${gearText(it)}` : ''}</small></span>${it.slot ? `<button data-equip="${id}">EQUIP</button>` : usable ? `<button data-use="${id}">${it.food ? 'EAT' : 'USE'}</button>` : ''}</li>`; }).join('')}</ul>` : '<p class="hint">Nothing yet. Strike trees, rocks, bushes and herbs to gather.</p>'}`;
+      <div class="slots">${Object.entries(SLOTS).map(([slot, label]) => { const id = p.equip[slot], it = ITEMS[id]; return `<div class="slot${id ? '' : ' empty'}"${it?.rarity >= 0 ? ` style="border-color:${RARITIES[it.rarity].color}88"` : ''}><small>${label}</small><b${rarityStyle(it)}>${id ? it.name : '—'}</b>${id ? `<em>${gearText(it)}</em><button data-unequip="${slot}">REMOVE</button>` : ''}</div>`; }).join('')}</div>
+      <h4>Pack</h4>${items.length ? `<ul>${items.map(([id, n]) => { const it = ITEMS[id], usable = it.food || it.heal || it.mana || it.effect; return `<li><span><span${rarityStyle(it)}>${it.name}</span>${compare(p, it)} <small>× ${n}${it.herb ? ` · herb of ${REGIONS[it.herb].name}` : ''}${it.slot ? ` · ${it.rarity >= 0 ? RARITIES[it.rarity].name + ' · ' : ''}${gearText(it)}` : ''}</small></span>${it.slot ? `<span class="acts"><button data-equip="${id}">EQUIP</button>${it.generated || (it.slot !== 'mount' && it.slot !== 'tool') ? `<button data-salvage="${id}" title="Break down for materials">SALVAGE</button>` : ''}</span>` : usable ? `<button data-use="${id}">${it.food ? 'EAT' : 'USE'}</button>` : ''}</li>`; }).join('')}</ul>` : '<p class="hint">Nothing yet. Strike trees, rocks, bushes and herbs to gather.</p>'}`;
   }
   if (tab === 'craft' || tab === 'alchemy') {
     const list = RECIPES.filter(r => tab === 'craft' ? !r.station : r.station);
@@ -707,7 +733,7 @@ function renderPack() {
   if (tab === 'trade') {
     const ok = canTrade(), silver = R.count(p, 'silver');
     html = ok
-      ? `<p class="hint">The merchant sees only a traveller. You carry <b>${silver} silver</b>.</p><h4>Sell</h4><ul>${Object.keys(p.inv).filter(id => SELL[id]).map(id => `<li><span>${ITEMS[id].name} <small>× ${R.count(p, id)} · ${SELL[id]} silver each</small></span><button data-sell="${id}">SELL</button></li>`).join('') || '<li><small>Nothing the merchant wants.</small></li>'}</ul><h4>Buy</h4><ul>${Object.entries(BUY).map(([id, price]) => `<li><span>${ITEMS[id].name} <small>${price} silver</small></span><button data-buy="${id}" ${silver >= price ? '' : 'disabled'}>BUY</button></li>`).join('')}</ul>`
+      ? `<p class="hint">The merchant sees only a traveller. You carry <b>${silver} silver</b>.</p><h4>Sell</h4><ul>${Object.keys(p.inv).filter(id => R.sellPrice(id)).map(id => `<li><span${rarityStyle(ITEMS[id])}>${ITEMS[id].name} <small>× ${R.count(p, id)} · ${R.sellPrice(id)} silver each</small></span><button data-sell="${id}">SELL</button></li>`).join('') || '<li><small>Nothing the merchant wants.</small></li>'}</ul><h4>Buy</h4><ul>${Object.entries(BUY).map(([id, price]) => `<li><span>${ITEMS[id].name} <small>${price} silver</small></span><button data-buy="${id}" ${silver >= price ? '' : 'disabled'}>BUY</button></li>`).join('')}</ul>`
       : '<p class="hint">Trade happens at a human village market stall, while you wear a Glamour [8] and the village is calm.</p>';
   }
   if (tab === 'coven') {
@@ -718,11 +744,12 @@ function renderPack() {
 }
 $('#tabs').addEventListener('click', e => { if (e.target.dataset.tab) { tab = e.target.dataset.tab; renderPack(); } });
 $('#tabBody').addEventListener('click', e => {
-  const p = state.player, { use, craft, build, sell, buy, equip, unequip } = e.target.dataset;
+  const p = state.player, { use, craft, build, sell, buy, equip, unequip, salvage: scrap } = e.target.dataset;
   const wear = id => { const slot = R.autoEquip(p, id); if (slot) toast(`Equipped ${ITEMS[id].name}.`); };
-  if ((sell || buy) && canTrade() && R.trade(p, sell || buy, !!sell)) { toast(sell ? `Sold ${ITEMS[sell].name} for ${SELL[sell]} silver.` : `Bought ${ITEMS[buy].name}.`); if (buy) wear(buy); quests(); }
+  if ((sell || buy) && canTrade() && R.trade(p, sell || buy, !!sell)) { toast(sell ? `Sold ${ITEMS[sell].name} for ${R.sellPrice(sell)} silver.` : `Bought ${ITEMS[buy].name}.`); if (buy) wear(buy); quests(); }
   if (equip && R.equip(p, equip)) toast(`Equipped ${ITEMS[equip].name}.`);
   if (unequip) R.unequip(p, unequip);
+  if (scrap) { const name = ITEMS[scrap].name, got = salvage(p, scrap); if (got) toast(`Salvaged ${name}: ${Object.entries(got).map(([id, n]) => `+${n} ${ITEMS[id].name}`).join(', ')}.`); }
   if (use) { const msg = R.useItem(p, use); if (msg) toast(msg); }
   if (craft) {
     const before = R.skillLevel(p, 'alchemy'), made = R.craft(p, craft, stations());
@@ -875,7 +902,7 @@ net.on('bossDown', m => {
   const p = state.player;
   if (Math.hypot(p.x - CROWN.x, p.z - CROWN.z) < 250) {
     boss = null; state.bossDefeated = true; p.stats.boss = 1;
-    toast(`The Unwitch is unmade${m.by ? ` — ${m.by} struck the last blow` : ''}. The coven is whole again.`, true); reward(BOSS.xp); quests(); saveState();
+    toast(`The Unwitch is unmade${m.by ? ` — ${m.by} struck the last blow` : ''}. The coven is whole again.`, true); bossLoot(); reward(BOSS.xp); quests(); saveState();
   } else chatLine('', `${m.by} and their coven have unmade the Unwitch.`);
 });
 net.on('fx', m => view.ring(m.x, m.y, m.z, m.r, m.color));
@@ -963,14 +990,14 @@ canvas.addEventListener('mousedown', e => {
 const saved = loadState();
 if (saved) { begin(saved); $('#play').innerHTML = 'CONTINUE <span>→</span>'; $('#newGame').classList.remove('hidden'); }
 else begin(freshState('wild'));
-window.__coven = { net, get remotes() { return remotes; }, get villages() { return villages; }, get state() { return state; }, world, view, get creatures() { return creatures; }, get allies() { return allies; }, get boss() { return boss; }, cast, placeBuilding, get mode() { return mode; }, spawn: (kind, x, z) => creatures.push(newCreature(kind, x, z)), hit: (c, n) => damage(c, n), humanVillages, villageState, interact: () => interaction()?.act() };
+window.__coven = { net, get remotes() { return remotes; }, get villages() { return villages; }, get state() { return state; }, world, view, get creatures() { return creatures; }, get allies() { return allies; }, get boss() { return boss; }, cast, placeBuilding, get mode() { return mode; }, spawn: (kind, x, z) => creatures.push(newCreature(kind, x, z)), loot: { generateGear, addGear }, equip: id => R.equip(state.player, id), get portrait() { return portrait; }, hit: (c, n) => damage(c, n), humanVillages, villageState, interact: () => interaction()?.act() };
 // Without a save, the menu shows the world behind it but play starts at class selection.
 if (!saved) state = null;
 const preview = freshState('wild');
 
 // Auto graphics: lower the render resolution when frames run slow, raise it again when there is headroom.
 const GFX_KEY = 'coven-gfx';
-let gfx = 'auto', frameAvg = 1 / 60, scaleTimer = 0, hudTimer = 0;
+let portrait = null, gfx = 'auto', frameAvg = 1 / 60, scaleTimer = 0, hudTimer = 0;
 try { gfx = localStorage.getItem(GFX_KEY) || 'auto'; } catch { /* default */ }
 $('#gfx').value = gfx; view.setQuality(gfx);
 $('#gfx').onchange = () => { gfx = $('#gfx').value; view.setQuality(gfx); try { localStorage.setItem(GFX_KEY, gfx); } catch { /* not remembered */ } };
@@ -997,8 +1024,9 @@ function frame(now) {
     const built = allBuildings(), lights = lightSources();
     view.syncRemotes([...remotes.values()], now / 1000);
     view.syncWorld({ creatures, allies, boss, buildings: built, projectiles, elders: elders(), now: now / 1000 });
-    view.render({ player: p, yaw, pitch, dayTime: state.dayTime, now: now / 1000, dt, swing, toolName: R.weapon(p).name, lights, moving: moving && mode === 'playing', sight: !!p.effects.sight, glamour: !!p.effects.glamour, mounted: !!p.mounted, flying: !!p.flying });
+    view.render({ player: p, yaw, pitch, dayTime: state.dayTime, now: now / 1000, dt, swing, toolName: R.weapon(p).name, lights, moving: moving && mode === 'playing', sight: !!p.effects.sight, sprinting: !!p.sprinting, look: lookOf(p), glamour: !!p.effects.glamour, mounted: !!p.mounted, flying: !!p.flying });
     put('#hurt', 'className', hurtFlash > 0 ? 'on' : '');
+    if (mode === 'pack' && tab === 'items') { portrait ??= new HeroPreview($('#heroCanvas')); portrait.show(p.class, lookOf(p), now / 1000, dt); }
     if ((hudTimer -= dt) <= 0) { hudTimer = .1; hud(); }
   } else view.render({ player: p, yaw, pitch: .25, dayTime: .3, now: now / 1000, dt, swing: 0, toolName: 'fists', lights: hearthFires(), moving: false, sight: false });
   requestAnimationFrame(frame);

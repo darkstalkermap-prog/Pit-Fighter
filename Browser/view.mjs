@@ -1,10 +1,18 @@
-// Low-cost rendering: flat-shaded blocks, no shadows, short view distance. Mechanics come first.
+// Low-cost rendering: flat-shaded blocks, no shadows, short view distance, except for the witch heroes
+// (hero.mjs), who are fully detailed.
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { CHUNK, HALF, NODES } from './world.mjs';
 import { CREATURE, BOSS } from './bestiary.mjs';
 import { CLASSES } from './data.mjs';
 import { ALLIES } from './creatures.mjs';
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
+import { Hero, HeroKit } from './hero.mjs';
+import { decodeLook } from './loot.mjs';
+
+// What coven sisters and elders wear (slot → [kind, rarity]).
+const SISTER_LOOK = { head: ['hat', 2], chest: ['robe', 2], cloak: ['cloak', 2], feet: ['boots', 1], weapon: ['staff', 2] };
+const ELDER_LOOK = { head: ['hat', 3], chest: ['robe', 3], cloak: ['cloak', 3], amulet: ['amulet', 3], feet: ['boots', 2], weapon: ['staff', 3] };
 
 const MAX_CHUNK = HALF / CHUNK;
 // Graphics levels. Radii are in chunks (250 m): terrain, trees and rocks, and small plants (herbs and bushes).
@@ -53,6 +61,10 @@ export class WorldView {
     this.world = world;
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
     this.quality = QUALITY.auto; this.scale = 1;
+    // A soft studio environment for the heroes' materials only: shine on metal, gems and silk.
+    const pmrem = new THREE.PMREMGenerator(this.renderer);
+    this.heroKit = new HeroKit(pmrem.fromScene(new RoomEnvironment(), .04).texture);
+    pmrem.dispose();
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.scene = new THREE.Scene();
     this.scene.background = DAY.clone();
@@ -139,33 +151,11 @@ export class WorldView {
   }
 
   // ---------- characters ----------
-  witch(classId, scale = 1) {
-    const k = CLASSES[classId], g = new THREE.Group(), body = new THREE.Group();
-    g.add(body); g.scale.setScalar(scale);
-    this.block(body, k.robe, 0, .75, 0, 1, 1.3, 1, new THREE.ConeGeometry(.55, 1, 6));
-    this.block(body, k.robe, 0, 1.38, 0, .5, .5, .5);
-    this.block(body, '#e2bfa0', 0, 1.78, 0, .4, .4, .4);
-    const brim = this.block(body, k.hat, 0, 1.97, 0, 1.1, .05, 1.1);
-    const hat = this.block(body, k.hat, 0, 2.38, 0, 1, .85, 1, new THREE.ConeGeometry(.3, 1, 5)); hat.rotation.z = -.18;
-    // Glamour disguise: a plain brown traveller's hood and cloak instead of hat and robe colours.
-    const hood = this.block(body, '#6a5238', 0, 1.86, -.02, .5, .45, .5, this.ball); hood.visible = false;
-    const cloak = new THREE.Group(); cloak.visible = false; body.add(cloak);
-    this.block(cloak, '#6a5238', 0, .75, 0, 1.06, 1.32, 1.06, new THREE.ConeGeometry(.55, 1, 6));
-    this.block(cloak, '#6a5238', 0, 1.38, 0, .54, .54, .54);
-    const arm = new THREE.Group(); arm.position.set(.32, 1.45, 0); body.add(arm);
-    this.block(arm, k.robe, 0, -.3, 0, .16, .6, .16);
-    const sleeve = this.block(arm, '#6a5238', 0, -.3, 0, .18, .62, .18); sleeve.visible = false;
-    const tool = new THREE.Group(); tool.position.set(0, -.6, .05); arm.add(tool);
-    this.block(tool, '#6b4a2e', 0, 0, .4, .07, .07, 1.1);
-    const head = this.block(tool, '#8a8a85', 0, 0, .85, .12, .22, .24);
-    const legs = [-.15, .15].map(x => this.block(g, '#221a2a', x, .22, 0, .14, .45, .14));
-    // The broom: a handle along the facing direction with a bristle cone behind, shown when riding.
-    const broom = new THREE.Group(); broom.visible = false; g.add(broom);
-    this.block(broom, '#6b4a2e', 0, .45, .3, .07, .07, 2.4);
-    this.block(broom, '#c9a860', 0, .45, -1.15, .45, .7, .45, new THREE.ConeGeometry(.5, 1, 6)).rotation.x = Math.PI / 2;
-    this.block(broom, '#7a5a3a', 0, .45, -.82, .2, .2, .12, new THREE.CylinderGeometry(.5, .5, 1, 6)).rotation.x = Math.PI / 2;
-    Object.assign(g.userData, { body, arm, tool, head, legs, hat, brim, hood, cloak, sleeve, broom, faces: 'z' });
-    return g;
+  // A detailed witch hero. The group's userData.hero animates it (see Hero.update).
+  witch(classId, scale = 1, look = SISTER_LOOK) {
+    const hero = new Hero(this.heroKit, classId, look, { scale });
+    Object.assign(hero.root.userData, { hero, faces: 'z' });
+    return hero.root;
   }
 
   creature(plan, size, color, accent, b = {}) {
@@ -427,9 +417,17 @@ export class WorldView {
       m.visible = true;
       m.scale.setScalar(c.hurt > 2.8 ? 1.12 : 1);
     });
-    const riding = (m, a) => { if (m.userData.broom) m.userData.broom.visible = !!a.riding; };
-    this.sync('allies', allies, a => a.ally === 'witch' ? this.witch(a.cls) : a.ally === 'fox' ? this.familiar('fox') : (() => { const s = ALLIES[a.ally]; return this.creature(a.ally === 'beast' ? 'quad' : 'biped', s.size, s.color, a.ally === 'titan' ? '#7dffd8' : '#9a6bff', { horns: true }); })(), (m, a) => { this.pose(m, a, a.riding ? 0 : a.walk, now); riding(m, a); });
-    this.sync('elders', elders, e => this.witch(e.cls, 1.05), (m, e) => this.pose(m, e, 0, now));
+    const dt = Math.min(.1, now - (this.lastSync ?? now)); this.lastSync = now;
+    // Heroes move when their walk counter or position changes since the last frame.
+    const animate = (m, e, extra = {}) => {
+      const hero = m.userData.hero;
+      if (!hero) return;
+      const moved = Math.hypot(e.x - (m.userData.lx ?? e.x), e.z - (m.userData.lz ?? e.z)) > .002;
+      m.userData.lx = e.x; m.userData.lz = e.z;
+      hero.update(dt, now, { moving: moved, ...extra });
+    };
+    this.sync('allies', allies, a => a.ally === 'witch' ? this.witch(a.cls) : a.ally === 'fox' ? this.familiar('fox') : (() => { const s = ALLIES[a.ally]; return this.creature(a.ally === 'beast' ? 'quad' : 'biped', s.size, s.color, a.ally === 'titan' ? '#7dffd8' : '#9a6bff', { horns: true }); })(), (m, a) => { this.pose(m, a, a.riding ? 0 : a.walk, now); animate(m, a, { mounted: !!a.riding, flying: a.riding && a.y > this.world.ground(a.x, a.z) + 3 }); });
+    this.sync('elders', elders, e => this.witch(e.cls, 1.05, ELDER_LOOK), (m, e) => { this.pose(m, e, 0, now); animate(m, e); });
     this.sync('boss', boss ? [boss] : [], () => this.boss(), (m, b) => { this.pose(m, b, b.walk, now); m.userData.ward.visible = b.warded; m.userData.ward.rotation.y = now; });
     this.sync('buildings', buildings, b => { const g = this.building(b.type); g.position.set(b.x, b.y, b.z); g.rotation.y = b.rot ?? 0; return this.bake(g); }, () => {});
     this.sync('projectiles', projectiles, p => new THREE.Mesh(this.ball, this.mat(p.color, true)), (m, p) => m.position.set(p.x, p.y, p.z));
@@ -450,18 +448,17 @@ export class WorldView {
   // Other players: a witch of their class with their name (and coven) overhead.
   syncRemotes(list, now) {
     this.sync('remotes', list, r => {
-      const g = this.witch(r.cls);
+      const g = this.witch(r.cls, 1, decodeLook(r.look));
       g.add(this.nameTag(r.coven ? `${r.name} ‹${r.coven}›` : r.name));
       g.userData.cls = r.cls;
       return g;
     }, (m, r) => {
       this.pose(m, r, 0, now);
-      const u = m.userData;
-      u.legs.forEach((leg, i) => { leg.rotation.x = r.moving ? Math.sin(r.walk * 1.7 + i * Math.PI) * .6 : 0; });
-      u.arm.rotation.x = r.swing > 0 ? -2.2 * Math.sin((1 - r.swing) * Math.PI) : 0;
+      const hero = m.userData.hero, dt = Math.min(.1, now - (m.userData.t ?? now));
+      m.userData.t = now;
+      if (r.look !== m.userData.look) { m.userData.look = r.look; hero.setLook(decodeLook(r.look)); }
+      hero.update(dt, now, { moving: r.moving, swing: r.swing, mounted: r.mounted, flying: r.mounted && r.y > this.world.ground(r.x, r.z) + 3 });
       m.visible = r.hp > 0;
-      u.broom.visible = !!r.mounted;
-      if (r.mounted) u.legs.forEach(leg => { leg.rotation.x = 0; });
     });
   }
 
@@ -476,21 +473,18 @@ export class WorldView {
     if (this.playerClass === classId) return;
     if (this.player) this.scene.remove(this.player, this.pet);
     this.playerClass = classId;
-    this.player = this.witch(classId); this.scene.add(this.player);
+    this.player = this.witch(classId, 1, {}); this.scene.add(this.player);
+    this.playerHero = this.player.userData.hero;
     this.pet = familiar === 'fox' ? null : this.familiar(familiar);
     if (this.pet) this.scene.add(this.pet);
   }
 
   render(state) {
-    const { player, yaw, pitch, dayTime, now, swing, toolName, lights, moving, sight, dt, glamour = false, mounted = false, flying = false } = state;
-    const w = this.player, u = w.userData;
+    const { player, yaw, pitch, dayTime, now, swing, lights, moving, sprinting = false, sight, dt, glamour = false, mounted = false, flying = false, look = {} } = state;
+    const w = this.player;
     w.position.set(player.x, player.y, player.z); w.rotation.y = -player.yaw + Math.PI / 2;
-    u.broom.visible = mounted;
-    u.legs.forEach((leg, i) => { leg.rotation.x = moving && !mounted ? Math.sin(now * 10 + i * Math.PI) * .6 : 0; });
-    u.body.rotation.x = flying && moving ? .12 : 0;
-    u.arm.rotation.x = swing > 0 ? -2.2 * Math.sin((1 - swing) * Math.PI) : moving ? Math.sin(now * 10) * .3 : 0;
-    u.tool.visible = toolName !== 'fists';
-    u.hat.visible = u.brim.visible = !glamour; u.hood.visible = u.cloak.visible = u.sleeve.visible = glamour;
+    this.playerHero.setLook(look);
+    this.playerHero.update(dt, now, { moving, sprinting, swing, mounted, flying, glamour });
     if (this.pet) this.pet.visible = !glamour && (!flying || this.pet.userData.plan === 'bird');
     if (this.pet) {
       const t = this.pet, raven = t.userData.plan === 'bird', tx = player.x - Math.cos(player.yaw + .9) * 1.4, tz = player.z - Math.sin(player.yaw + .9) * 1.4;
@@ -500,7 +494,7 @@ export class WorldView {
       this.pose(t, { x: t.position.x, y: t.position.y, z: t.position.z, yaw: player.yaw }, moving ? now * 6 : 0, now);
     }
 
-    const dist = 6.5, cx = player.x - Math.cos(yaw) * Math.cos(pitch) * dist, cz = player.z - Math.sin(yaw) * Math.cos(pitch) * dist;
+    const dist = 5.6, cx = player.x - Math.cos(yaw) * Math.cos(pitch) * dist, cz = player.z - Math.sin(yaw) * Math.cos(pitch) * dist;
     const cy = Math.max(player.y + 1.8 + Math.sin(pitch) * dist, this.world.ground(cx, cz) + .6, .8);
     this.camera.position.set(cx, cy, cz);
     this.camera.lookAt(player.x, player.y + 1.6, player.z);
@@ -508,6 +502,7 @@ export class WorldView {
     // Day/night: dayTime 0..1, 0.25 sunrise, 0.5 noon, 0.75 sunset.
     const a = (dayTime - .25) * Math.PI * 2, sunH = Math.sin(a);
     const day = THREE.MathUtils.smoothstep(sunH, -.12, .25), dusk = Math.max(0, 1 - Math.abs(sunH) / .3) * .8, see = sight ? .5 : 0;
+    this.heroKit.setDaylight(Math.max(day, see));
     const sky = NIGHT.clone().lerp(DAY, Math.max(day, see * .4)).lerp(DUSK, dusk * .5);
     this.scene.background.copy(sky); this.scene.fog.color.copy(sky);
     this.sun.intensity = .3 + 2 * day; this.hemi.intensity = .55 + 1.1 * Math.max(day, see);
@@ -527,6 +522,38 @@ export class WorldView {
       if (e.t > .6) { this.scene.remove(e.m); e.m.geometry.dispose(); e.m.material.dispose(); return false; }
       return true;
     });
+    this.renderer.render(this.scene, this.camera);
+  }
+}
+
+// The inventory's portrait: your witch in studio light, turning slowly, wearing what you wear.
+export class HeroPreview {
+  constructor(canvas) {
+    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+    this.renderer.setPixelRatio(1); this.renderer.setSize(canvas.width, canvas.height, false);
+    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping; this.renderer.toneMappingExposure = 1.1;
+    this.scene = new THREE.Scene();
+    this.camera = new THREE.PerspectiveCamera(30, canvas.width / canvas.height, .1, 50);
+    this.camera.position.set(0, 1.45, 4.9); this.camera.lookAt(0, 1.35, 0);
+    const key = new THREE.DirectionalLight('#fff1dc', 1.9); key.position.set(2.5, 4, 3.5);
+    const fill = new THREE.DirectionalLight('#9ab8ff', .9); fill.position.set(-3, 2, 2);
+    const rim = new THREE.DirectionalLight('#c89aff', 2.2); rim.position.set(-1, 3, -4);
+    this.scene.add(new THREE.HemisphereLight('#d8d0ff', '#2a1e30', .8), key, fill, rim);
+    const pmrem = new THREE.PMREMGenerator(this.renderer);
+    this.kit = new HeroKit(pmrem.fromScene(new RoomEnvironment(), .04).texture);
+    pmrem.dispose();
+    const floor = new THREE.Mesh(new THREE.CircleGeometry(1.1, 40), new THREE.MeshBasicMaterial({ color: '#9a6bff', transparent: true, opacity: .12 }));
+    floor.rotation.x = -Math.PI / 2; this.scene.add(floor);
+  }
+  show(cls, look, now, dt) {
+    if (!this.hero || this.hero.cls !== cls) {
+      if (this.hero) this.scene.remove(this.hero.root);
+      this.hero = new Hero(this.kit, cls, look); this.scene.add(this.hero.root);
+    }
+    this.hero.setLook(look);
+    this.hero.update(dt, now, {});
+    this.hero.root.rotation.y = Math.sin(now * .35) * .7;
     this.renderer.render(this.scene, this.camera);
   }
 }

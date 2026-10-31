@@ -96,3 +96,10 @@ footer{position:absolute;bottom:0;left:0;right:0;padding:12px 24px;display:flex;
 .modes{display:flex;flex-wrap:wrap;gap:6px 14px}.modes label{flex-direction:row!important;align-items:center;gap:6px!important;font-size:12px!important;letter-spacing:0!important;color:#cbbfdc!important;cursor:pointer}
 #mpFields:not([data-mode="join"]) .m-join,#mpFields:not([data-mode="server"]) .m-server,#mpFields:not([data-mode="host"]) .m-host{display:none}
 #mp-code{text-transform:uppercase;letter-spacing:4px;font-size:16px!important}
+
+.up{color:#3fc75a;font-size:11px}.down{color:#e05a4a;font-size:11px}.acts{display:flex;gap:6px}
+.slots{grid-template-columns:repeat(5,1fr)}.slot{min-height:92px}
+#packBody{display:block}#pack.hero #packBody{display:grid;grid-template-columns:240px 1fr;gap:18px}
+#heroCanvas{display:none;width:240px;height:380px;border:1px solid #9a6bff44;background:radial-gradient(ellipse at 50% 35%,#3a2a52,#120c1a 70%)}#pack.hero #heroCanvas{display:block;position:sticky;top:0}
+@media(max-width:760px){#pack.hero #packBody{grid-template-columns:1fr}#heroCanvas{margin:0 auto}}
+.panel.wide{width:min(1080px,96vw)}

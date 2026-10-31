@@ -378,3 +378,71 @@ test('every hearth starts with enough close by for a broom: wood, fiber and feat
   const p = player('wild');
   assert.deepEqual(R.gatherYield(p, 'nest'), { feather: 2 });
 });
+
+import { RARITIES, BASES, rollRarity, generateGear, dropGear, addGear, registerGear, salvage, lookOf, encodeLook, decodeLook } from './loot.mjs';
+
+test('gear rarities run grey to gold, and better rarity and level mean better stats', () => {
+  assert.deepEqual(RARITIES.map(r => r.name), ['Poor', 'Uncommon', 'Rare', 'Epic', 'Legendary']);
+  const mail = (level, rarity) => { let g; do g = generateGear(level, { rarity }); while (g.kind !== 'mail'); return g; };
+  for (let r = 1; r < 5; r++) assert.ok(mail(8, r).armor > mail(8, r - 1).armor, `rarity ${r} beats ${r - 1}`);
+  assert.ok(mail(12, 2).armor > mail(2, 2).armor, 'higher level, more armor');
+  assert.equal(new Set(BASES.map(b => b.slot)).size, 7, 'drops cover head, chest, hands, feet, cloak, amulet and weapon');
+  const g = generateGear(10, { rarity: 4, region: 'swamp' });
+  assert.match(g.name, /'s /, 'legendaries carry a name');
+  assert.ok(g.value > generateGear(10, { rarity: 1 }).value);
+});
+
+test('rarity odds: no grey from elites, purple and gold from the boss, gold only from higher levels', () => {
+  const roll = (level, opts) => Array.from({ length: 3000 }, (_, i) => rollRarity(level, opts, () => (i + .5) / 3000));
+  assert.ok(!roll(1).includes(4), 'no gold at level 1');
+  assert.ok(roll(10).includes(4));
+  assert.ok(!roll(12, { elite: true }).includes(0));
+  assert.ok(roll(15, { boss: true }).every(r => r >= 3));
+  const elite = BESTIARY.find(b => b.elite), wolf = CREATURE.wolf;
+  assert.ok(dropGear(elite, () => .99), 'elites always drop');
+  assert.equal(dropGear(wolf, () => .99), null);
+  assert.equal(dropGear(wolf, () => 0).level, wolf.level, 'gear level is the creature level');
+});
+
+test('generated gear lives in the save, equips with its bonuses, sells and salvages', () => {
+  const p = player('hex'), g = generateGear(9, { rarity: 3 });
+  addGear(p, g);
+  assert.equal(R.count(p, g.id), 1);
+  const saved = JSON.parse(JSON.stringify(p));
+  delete ITEMS[g.id];
+  registerGear(saved);
+  assert.equal(ITEMS[g.id].name, g.name, 'reloaded from the save');
+  const hp = p.maxHp, mana = p.maxMana;
+  R.equip(p, g.id);
+  assert.equal(p.maxHp, hp + (g.health ?? 0));
+  assert.equal(p.maxMana, mana + (g.mana ?? 0));
+  R.unequip(p, g.slot === 'tool' ? 'tool1' : g.slot);
+  assert.equal(p.maxHp, hp);
+  assert.equal(R.sellPrice(g.id), g.value);
+  const got = salvage(p, g.id);
+  assert.ok(Object.values(got)[0] === 4, 'epic salvages for 4 materials');
+  assert.equal(p.gear[g.id], undefined, 'gone from the save once broken down');
+});
+
+test('the look of a witch: what she wears, shared as a short string', () => {
+  const p = player('bloom');
+  R.addItem(p, 'staff'); R.equip(p, 'staff'); R.addItem(p, 'ironMail'); R.equip(p, 'ironMail');
+  const look = lookOf(p);
+  assert.deepEqual(look, { chest: ['mail', 2], weapon: ['staff', 1] });
+  assert.deepEqual(decodeLook(encodeLook(look)), look);
+  assert.deepEqual(decodeLook('head:<script>:9|chest:robe:9|nope:hat:1'), { chest: ['robe', 4] }, 'bad parts are dropped, rarity clamped');
+});
+
+test('alone, any spell can be cast once its materials are met', () => {
+  const p = player('wild');
+  p.mana = p.maxMana = 999;
+  assert.equal(R.castBlocker(p, 'binding', 1), 'Needs Spellcraft 3');
+  assert.match(R.castBlocker(p, 'binding', 1, { solo: true }), /Coven Ink/, 'solo: only the materials are asked');
+  R.addItem(p, 'covenInk');
+  assert.equal(R.castBlocker(p, 'binding', 1, { solo: true }), null);
+  Object.assign(p.inv, { heartSigil: 1, humanSoul: 3 });
+  assert.equal(R.castBlocker(p, 'grandrite', 1, { solo: true }), null);
+  assert.equal(R.castBlocker(p, 'titan', 1, { solo: true }), null);
+  p.mana = 0;
+  assert.equal(R.castBlocker(p, 'binding', 1, { solo: true }), 'Not enough mana');
+});

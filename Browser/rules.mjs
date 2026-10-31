@@ -41,6 +41,7 @@ export function equip(p, id) {
   removeItem(p, id);
   p.equip[slot] = id;
   if (item.mana) p.maxMana += item.mana;
+  if (item.health) p.maxHp += item.health;
   return slot;
 }
 export function unequip(p, slot) {
@@ -50,6 +51,7 @@ export function unequip(p, slot) {
   addItem(p, id);
   const item = ITEMS[id];
   if (item.mana) { p.maxMana -= item.mana; p.mana = Math.min(p.mana, p.maxMana); }
+  if (item.health) { p.maxHp -= item.health; p.hp = Math.min(p.hp, p.maxHp); }
   if (item.slot === 'mount') p.mounted = p.flying = false;
   return true;
 }
@@ -99,7 +101,7 @@ export function weapon(p) {
   const melee = (CLASSES[p.class].melee ?? 1) * (1 + (skillLevel(p, 'hunting') - 1) * .03);
   // The weapon slot first; otherwise the hardest-hitting tool in hand.
   const w = ITEMS[p.equip?.weapon];
-  if (w) return { name: p.equip.weapon === 'spear' ? 'spear' : 'staff', damage: w.damage * melee, reach: w.reach ?? 2.6 };
+  if (w) return { name: w.kind ?? 'staff', damage: w.damage * melee, reach: w.reach ?? 2.6 };
   const tool = [p.equip?.tool1, p.equip?.tool2].filter(Boolean).sort((a, b) => ITEMS[b].damage - ITEMS[a].damage)[0];
   if (tool) return { name: 'hatchet', damage: ITEMS[tool].damage * melee, reach: 2.6 };
   return { name: 'fists', damage: 6 * melee, reach: 2.2 };
@@ -108,11 +110,12 @@ export function weapon(p) {
 export function spellPower(p, night = false) {
   let power = CLASSES[p.class].power * (1 + (skillLevel(p, 'spellcraft') - 1) * .04);
   power *= ITEMS[p.equip?.weapon]?.power ?? 1;
+  power *= 1 + worn(p).reduce((sum, item) => sum + (item.spell ?? 0), 0) / 100;
   if (p.class === 'hex' && night) power *= 1.25;
   return power;
 }
 
-export const moveSpeedFactor = p => (p.class === 'bloom' ? 1.15 : 1) * (p.effects.swift ? 1.3 : 1) * (p.mounted ? ITEMS[p.equip.mount]?.speed ?? 1 : 1);
+export const moveSpeedFactor = p => (p.class === 'bloom' ? 1.15 : 1) * (p.effects.swift ? 1.3 : 1) * (p.mounted ? ITEMS[p.equip.mount]?.speed ?? 1 : 1) * (1 + worn(p).reduce((sum, item) => sum + (item.haste ?? 0), 0) / 100);
 export const poisonsOnHit = p => p.class === 'bog' || !!p.effects.venom;
 
 // Damage taken by the player after potions and spells. Returns the amount dealt.
@@ -244,10 +247,11 @@ export function respawn(p) {
 export const knownSpells = p => [...CLASSES[p.class].spells, 'summonbeast', 'binding', 'storm', 'guardian', 'grandrite', 'glamour', 'titan', 'skyward'];
 
 // `covenNearby` counts witches within reach including you. Returns null if castable, else the reason.
-export function castBlocker(p, id, covenNearby) {
+// Playing alone (`solo`), any spell can be cast as long as its materials are met: mana and reagents.
+export function castBlocker(p, id, covenNearby, { solo = false } = {}) {
   const s = SPELLS[id];
-  if (skillLevel(p, 'spellcraft') < s.skill) return `Needs Spellcraft ${s.skill}`;
-  if (covenNearby < s.coven) return `Needs a coven of ${s.coven}`;
+  if (!solo && skillLevel(p, 'spellcraft') < s.skill) return `Needs Spellcraft ${s.skill}`;
+  if (!solo && covenNearby < s.coven) return `Needs a coven of ${s.coven}`;
   if (p.cooldowns[id]) return 'Not ready';
   if (p.mana < s.mana) return 'Not enough mana';
   if (s.kind === 'enchant' && p.equip?.mount !== 'broom') return p.equip?.mount === 'skyBroom' ? 'Your broom already flies' : 'Equip a Witch\'s Broom first';
@@ -264,15 +268,17 @@ export function payCast(p, id) {
 }
 
 // ---------- trade with the human villages ----------
+// Silver a merchant pays: fixed for goods, by level and rarity for gear.
+export const sellPrice = id => SELL[id] ?? ITEMS[id]?.value ?? 0;
 // Returns null if the trade can happen, else the reason. Selling gives silver; buying costs it.
 export function tradeBlocker(p, id, selling) {
-  if (selling) return SELL[id] && count(p, id) ? null : 'Nothing to sell';
+  if (selling) return sellPrice(id) && count(p, id) ? null : 'Nothing to sell';
   if (!BUY[id]) return 'Not for sale';
   return count(p, 'silver') >= BUY[id] ? null : `Needs ${BUY[id]} silver`;
 }
 export function trade(p, id, selling) {
   if (tradeBlocker(p, id, selling)) return false;
-  if (selling) { removeItem(p, id); addItem(p, 'silver', SELL[id]); }
+  if (selling) { removeItem(p, id); addItem(p, 'silver', sellPrice(id)); if (p.gear?.[id] && !count(p, id) && !equipped(p, id)) delete p.gear[id]; }
   else { removeItem(p, 'silver', BUY[id]); addItem(p, id); }
   p.stats.trades++;
   return true;

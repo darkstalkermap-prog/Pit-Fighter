@@ -55,11 +55,11 @@ try{
  await shot(page,'pack');
  await page.keyboard.press('Escape');
 
- // A two-witch rite is refused alone and works once a sister stands with you.
- await page.evaluate(()=>{const p=__coven.state.player;p.skills.spellcraft=1000;p.inv.covenInk=2;p.mana=p.maxMana;__coven.cast(3);});
- assert.equal(await page.evaluate(()=>__coven.state.player.inv.covenInk),2,'Coven spell needs a coven');
- await page.evaluate(()=>{const p=__coven.state.player;p.coven.push('hex');__coven.allies.push({id:999,ally:'witch',cls:'hex',x:p.x+2,z:p.z,y:p.y,yaw:0,life:Infinity,cooldown:0,walk:0});__coven.cast(3);});
- assert.equal(await page.evaluate(()=>__coven.state.player.inv.covenInk),1,'Binding Circle cast with two witches');
+ // Playing alone, a coven rite needs only its materials: no Spellcraft level and no second witch.
+ await page.evaluate(()=>{const p=__coven.state.player;p.inv.covenInk=2;p.mana=p.maxMana;__coven.cast(3);});
+ assert.equal(await page.evaluate(()=>__coven.state.player.inv.covenInk),1,'Binding Circle cast alone with its Coven Ink');
+ await page.evaluate(()=>{const p=__coven.state.player;p.cooldowns={};p.coven.push('hex');__coven.allies.push({id:999,ally:'witch',cls:'hex',x:p.x+2,z:p.z,y:p.y,yaw:0,life:Infinity,cooldown:0,walk:0});__coven.cast(3);});
+ assert.equal(await page.evaluate(()=>__coven.state.player.inv.covenInk??0),0,'Binding Circle cast again with a sister beside you');
 
  // Inventory: equip armor and a broom from the pack.
  await page.evaluate(()=>{Object.assign(__coven.state.player.inv,{hideJerkin:1,broom:1});});
@@ -150,5 +150,5 @@ try{
  assert.ok(await page.evaluate(()=>__coven.boss.hp<=5600),'Grand Rite deals full damage once the ward breaks');
  await shot(page,'crown');
  assert.deepEqual(errors,[],'No browser errors');
- console.log('PASS: WebGL 2, Pages subpath, class choice, homeland start, walking, spell bar, village building, alchemy, coven gating, equipment slots, broom riding, Skyward Charm and flight, human village alarm, glamour and trade, soul capture, Wyrd Titan, hunting and loot, map, boss ward and Grand Rite, no browser errors.');
+ console.log('PASS: WebGL 2, Pages subpath, class choice, homeland start, walking, spell bar, village building, alchemy, solo casting with materials, equipment slots, broom riding, Skyward Charm and flight, human village alarm, glamour and trade, soul capture, Wyrd Titan, hunting and loot, map, boss ward and Grand Rite, no browser errors.');
 }finally{await browser?.close();await new Promise(resolve=>server.close(resolve));}

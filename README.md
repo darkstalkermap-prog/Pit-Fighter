@@ -2,7 +2,7 @@
 
 An open-world survival RPG in the browser. You play a witch of a broken coven on a 10 km × 10 km island. Gather, hunt and brew to survive, build a village, level your skills, and recruit three sister witches. Coven spells need two, three or four witches, and only the four-witch Grand Rite can break the ward of the Unwitch at the Crown.
 
-Built with JavaScript and Three.js (WebGL 2). Graphics are deliberately low-detail for now — flat-shaded blocks, no shadows, a short view distance — while the mechanics are worked out.
+Built with JavaScript and Three.js (WebGL 2). The world is deliberately low-detail for now (flat-shaded blocks, no shadows, a short view distance) while the mechanics are worked out; the witch heroes are the exception, modelled in detail with every worn piece of gear shown on them.
 
 ## Play
 
@@ -27,6 +27,10 @@ Use a desktop browser with a keyboard and mouse. Progress saves in the browser's
 | M | World map |
 | Enter | Chat (online) |
 | Esc | Pause / close panel |
+
+## Playing alone
+
+In single player (not online), any spell can be cast as long as its materials are met: its mana and reagents. Coven rites need no Spellcraft level and no sisters beside you; online, the coven rules apply.
 
 ## Multiplayer
 
@@ -106,9 +110,17 @@ Creatures drop meat, hide, bone, feathers, slime, chitin, silk, venom, ectoplasm
 
 Every Hearth sits in a generous patch of its land's trees, bushes, rocks and herbs (about 350 m around), with **bird's nests** that give feathers. Two trees, two bushes and one nest are enough for your first **Witch's Broom** (8 wood, 6 fiber, 4 feathers).
 
+## Loot and rarity
+
+Creatures drop armor and weapons scaled to their level, in five rarities: **grey** (Poor), **green** (Uncommon), **blue** (Rare), **purple** (Epic) and **gold** (Legendary). Higher rarity means bigger stats and more bonus stats (health, mana, spell power, armor, speed). Better rarities grow likelier with level; elites never drop grey, gold only drops from level 6 up, and the Unwitch leaves two purple or gold pieces. Drops cover head (hats, hoods, circlets), chest (robes, jerkins, mail), hands, feet, cloak, amulet and weapons (staffs, wands, sickles, spears). In the Inventory, names are coloured by rarity, ▲/▼ compares a piece with what you wear, and **Salvage** breaks unwanted gear into materials; merchants buy gear for silver.
+
+## The witches
+
+Every witch (you, your coven sisters, the elders and other players) is a detailed hero: a sculpted face with eyes, brows and lips, flowing hair, a curled and bent witch's hat decorated by path (mushrooms and moss for the Bog Witch, a crescent charm and raven feather for the Hex Witch, a crown of flowers for the Bloom Witch, twig antlers and leaves for the Wild Witch), a laced bodice, layered and tattered skirts, bell sleeves, a belt with pouch and potion, and boots. Each worn piece appears on her and grows richer with rarity: coloured trims, polished silver and gold, glowing gems and runes, and motes of light around epic and legendary gear. Capes ripple and trail, hair sways, and she walks, casts and rides her broom. The Inventory shows her in a turning portrait.
+
 ## Equipment and the broom
 
-The **Inventory** shows eight slots: Head, Chest, Cloak, Amulet, Weapon, two Tools and Mount. Only worn gear counts: equipped tools set how much each strike gathers (a hatchet for wood, a pick for stone and moonstone), the weapon slot sets your strike (otherwise you hit with your best tool), armor reduces damage taken (25 armor blocks a third), a cloak keeps out the cold, and a Moonstone Amulet adds 25 mana. Newly crafted or bought gear puts itself on if its slot is free.
+The **Inventory** shows ten slots: Head, Chest, Hands, Feet, Cloak, Amulet, Weapon, two Tools and Mount. Only worn gear counts: equipped tools set how much each strike gathers (a hatchet for wood, a pick for stone and moonstone), the weapon slot sets your strike (otherwise you hit with your best tool), armor reduces damage taken (25 armor blocks a third), a cloak keeps out the cold, and a Moonstone Amulet adds 25 mana. Newly crafted or bought gear puts itself on if its slot is free.
 
 | Gear | Slot | Made from |
 | --- | --- | --- |
