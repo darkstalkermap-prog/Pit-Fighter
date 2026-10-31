@@ -20,7 +20,7 @@ Use a desktop browser with a keyboard and mouse. Progress saves in the browser's
 | Low | The plain look of the earlier versions: no shadows, simple trees, a shorter view at 60% resolution. For older computers. |
 | Auto | Starts at High, lowers the resolution when frames slow down and drops to a simpler level if that isn't enough (it settles on the title screen, before you begin). |
 
-**Music** (title screen and [N] in game): witchy music made as you play: a drone, slow minor chords, a harp and a wooden flute by day, a music box by night, drums when something hunts you or the Unwitch is near. **How to play** (title screen and [H]) explains the goal, the rules and the controls; hovering spells, items, recipes and the health bars shows what they do.
+**Music** (title screen and [N] in game): witchy music made as you play: a drone, slow minor chords, a harp and a wooden flute by day, a music box by night, drums when something hunts you or the Unwitch is near. **How to play** (title screen and [H]) explains the goal, the rules and the controls, and ends with **All spells**: every path's two spells and every coven rite, with what each does, its key, mana, cooldown, how many witches it needs and its reagents (the Coven tab describes the rites too). Hovering spells, items, recipes and the health bars shows what they do. **Quit game** (in the pause menu, Esc) saves and returns to the title screen, where Continue picks up where you left off.
 
 | Input | Action |
 | --- | --- |
@@ -38,7 +38,7 @@ Use a desktop browser with a keyboard and mouse. Progress saves in the browser's
 | H | How to play: the goal, the rules and the controls |
 | N | Music on or off |
 | Enter | Chat (online) |
-| Esc | Pause / close panel |
+| Esc | Pause (the pause menu has Quit game) / close panel |
 
 ## Playing alone
 

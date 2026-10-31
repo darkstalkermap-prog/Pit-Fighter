@@ -708,7 +708,7 @@ function hud() {
     + `<small>COVEN ${covenHere}/4</small>`);
   put('#spells', 'innerHTML', R.knownSpells(p).map((id, i) => {
     const s = SPELLS[id], blocker = R.castBlocker(p, id, covenHere, { solo: !net.online }), cd = p.cooldowns[id];
-    return `<div class="spell${blocker ? ' locked' : ''}" data-tip="${esc(spellTip(id, blocker))}" style="--c:${s.color}"><kbd>${i + 1}</kbd><b>${s.name}</b><small>${s.coven > 1 ? `${s.coven} witches` : `${s.mana} mana`}</small>${cd ? `<i style="height:${Math.round(cd / s.cooldown * 20) * 5}%"></i>` : ''}</div>`;
+    return `<div class="spell${blocker ? ' locked' : ''}" data-tip="${esc(spellTip(id, blocker))}" style="--c:${s.color}"><kbd>${(i + 1) % 10}</kbd><b>${s.name}</b><small>${s.coven > 1 ? `${s.coven} witches` : `${s.mana} mana`}</small>${cd ? `<i style="height:${Math.round(cd / s.cooldown * 20) * 5}%"></i>` : ''}</div>`;
   }).join(''));
   const where = net.mode === 'host' ? `HOSTING · CODE ${net.code}` : net.mode === 'join' ? `GAME ${net.code}` : `ONLINE · ${net.world ?? online.world}`;
   put('#netStatus', 'textContent', net.status === 'online' ? `${where} · ${remotes.size} other${remotes.size === 1 ? '' : 's'}${online.coven ? ` · coven ‹${online.coven}›` : ''}` : net.status === 'offline' ? '' : net.status.toUpperCase() + '…');
@@ -782,7 +782,7 @@ function renderPack() {
   }
   if (tab === 'coven') {
     const k = CLASSES[p.class];
-    html = `<h4>${k.name} of ${REGIONS[k.region].name}</h4><p class="hint">${k.blurb}</p><h4>Familiar: ${k.familiar.name}</h4><p class="hint">${k.familiar.bonus}<br>${k.familiar.ability}</p><h4>Your coven (${1 + p.coven.length}/4)</h4><ul>${Object.entries(CLASSES).filter(([id]) => id !== p.class).map(([id, c]) => `<li><span>${c.elder}, ${c.name}<br><small>${p.coven.includes(id) ? 'Sworn to your coven.' : `At ${world.hearthOf(c.region).name} in ${REGIONS[c.region].name}. ${R.recruitBlocker(p, id)}.`}</small></span></li>`).join('')}</ul><h4>Coven rites</h4><ul>${COVEN_SPELLS.map(id => { const s = SPELLS[id]; return `<li><span>${s.name}<br><small>${s.coven} witches · Spellcraft ${s.skill} · ${needsText(p, s.reagent)}</small></span></li>`; }).join('')}</ul>`;
+    html = `<h4>${k.name} of ${REGIONS[k.region].name}</h4><p class="hint">${k.blurb}</p><h4>Familiar: ${k.familiar.name}</h4><p class="hint">${k.familiar.bonus}<br>${k.familiar.ability}</p><h4>Your coven (${1 + p.coven.length}/4)</h4><ul>${Object.entries(CLASSES).filter(([id]) => id !== p.class).map(([id, c]) => `<li><span>${c.elder}, ${c.name}<br><small>${p.coven.includes(id) ? 'Sworn to your coven.' : `At ${world.hearthOf(c.region).name} in ${REGIONS[c.region].name}. ${R.recruitBlocker(p, id)}.`}</small></span></li>`).join('')}</ul><h4>Coven rites</h4><ul>${COVEN_SPELLS.map(id => { const s = SPELLS[id]; return `<li data-tip="${esc(spellTip(id))}"><span>${s.name}<br><small>${s.text}</small><br><small>${s.coven} witches · Spellcraft ${s.skill} · ${needsText(p, s.reagent)}</small></span></li>`; }).join('')}</ul>`;
   }
   $('#tabBody').innerHTML = html;
 }
@@ -1006,7 +1006,7 @@ function openPanel(name, withTab) {
 }
 function pause() {
   mode = 'paused'; keys.clear(); document.exitPointerLock?.(); saveState();
-  $('#overlay').classList.remove('hidden'); $('#play').innerHTML = 'RESUME <span>→</span>';
+  $('#overlay').classList.remove('hidden'); $('#play').innerHTML = 'RESUME <span>→</span>'; $('#quit').classList.remove('hidden');
   $('#description').textContent = `${CLASSES[state.player.class].name}, level ${state.player.level}, day ${state.day}. Your progress is saved.`;
 }
 function chooseClass() {
@@ -1017,6 +1017,8 @@ $('#classCards').addEventListener('click', e => { const card = e.target.closest(
 $('#classBack').onclick = () => { $('#classes').classList.add('hidden'); $('#overlay').classList.remove('hidden'); mode = state ? 'paused' : 'menu'; };
 $('#play').onclick = () => state ? play() : chooseClass();
 $('#newGame').onclick = () => { if (confirm('Abandon this life and start again? Your saved progress will be lost.')) chooseClass(); };
+// Quit: save, leave any online game, and go back to the title screen, where Continue picks up where you left off.
+$('#quit').onclick = () => { saveState(); net.close(); music.setEnabled(false); location.reload(); };
 document.querySelectorAll('[data-close]').forEach(b => b.onclick = play);
 addEventListener('resize', () => view.resize());
 addEventListener('blur', () => { if (mode === 'playing') pause(); });
@@ -1125,7 +1127,17 @@ function renderHelp() {
   <section><h4>THE COVEN</h4><ul><li>At levels 3, 6 and 9 an elder of another path will join you, if you bring her a gift potion brewed from her own land's herbs.</li><li>Coven rites need two, three or four witches within 25 m. Playing alone, any spell can be cast once its mana and reagents are met; online, real players in the same coven count too.</li></ul></section>
   <section><h4>HUMAN VILLAGES</h4><ul><li>Humans hunt witches. Walk in as yourself and the alarm goes up.</li><li>Cast Glamour [8] to wear a human face, then trade with the merchant for silver, bread, ale and iron tools.</li><li>Any other spell, or striking anyone, breaks the glamour. A human who falls near an empty Soul Jar gives up their soul, the price of the Wyrd Titan.</li></ul></section>
   <section><h4>THE UNWITCH</h4><ul><li>Her ward lets only a tenth of any harm through, until a Grand Rite [7] shatters it for 30 seconds.</li><li>She calls thralls to her side, slams those who come close and hurls bolts at those who don't.</li><li>A Heartfire Sigil (made from an elite's Heartfire and the four lands' essences) makes three: enough for a Titan and two rites.</li></ul></section>
-  <section><h4>CONTROLS</h4><ul>${keys.map(([k, t]) => `<li><kbd>${k}</kbd> ${t}</li>`).join('')}</ul></section>`;
+  <section><h4>CONTROLS</h4><ul>${keys.map(([k, t]) => `<li><kbd>${k}</kbd> ${t}</li>`).join('')}</ul></section>
+  ${spellBook()}`;
+}
+// Every spell and what it does: each path's own two (keys 1 and 2 for whoever walks it), then the rites all
+// witches share, on keys 3 to 0.
+function spellBook() {
+  const line = (id, key) => { const s = SPELLS[id], cost = [`${s.mana} mana`, `${s.cooldown} s`, s.coven > 1 ? `${s.coven} witches` : '', s.reagent ? Object.entries(s.reagent).map(([r, n]) => `${n} ${ITEMS[r].name}`).join(', ') : ''].filter(Boolean).join(' · ');
+    return `<li>${key ? `<kbd>${key}</kbd> ` : ''}<b>${s.name}</b>: ${s.text} <small>${cost}</small></li>`; };
+  const shared = R.knownSpells(state?.player ?? { class: 'wild' }).slice(2);
+  return `<section class="spells"><h4>ALL SPELLS</h4>${Object.values(CLASSES).map(k => `<p><b>${k.name}</b></p><ul>${k.spells.map((id, i) => line(id, String(i + 1))).join('')}</ul>`).join('')}
+    <p><b>Shared by every witch</b></p><ul>${shared.map((id, i) => line(id, String((i + 3) % 10))).join('')}</ul></section>`;
 }
 $('#helpBtn').onclick = () => { renderHelp(); $('#help').classList.remove('hidden'); mode = 'help-menu'; };
 function closeMenuHelp() { $('#help').classList.add('hidden'); mode = state && $('#overlay').classList.contains('hidden') ? 'playing' : state ? 'paused' : 'menu'; }

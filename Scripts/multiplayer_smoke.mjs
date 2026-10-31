@@ -69,10 +69,14 @@ try{
  assert.equal(await a.evaluate(()=>__coven.state.player.hp),await a.evaluate(()=>__coven.state.player.maxHp),'Agnes is not bitten');
 
  // When Agnes leaves, Bryony takes over the creatures near her.
- const owned=await a.evaluate(()=>__coven.creatures.filter(c=>c.village===undefined&&!c.remote&&c.hp>0).map(c=>c.id));
+ // (A fresh hare beside her makes sure there is one the server already knows about.)
+ await a.evaluate(()=>{const r=[...__coven.remotes.values()][0];__coven.spawn('shadowhare',r.x+6,r.z+6);});
+ await b.waitForFunction(()=>__coven.creatures.some(c=>c.remote&&c.kind==='shadowhare'&&c.hp>0));
+ const owned=await b.evaluate(()=>__coven.creatures.filter(c=>c.remote&&c.hp>0).map(c=>c.id));
  await a.close();
  await b.waitForFunction(()=>__coven.remotes.size===0);
- await b.waitForFunction(ids=>ids.some(id=>__coven.creatures.some(c=>c.id===id&&!c.remote)),owned);
+ await b.waitForFunction(ids=>ids.some(id=>__coven.creatures.some(c=>c.id===id&&!c.remote)),owned).catch(async e=>{
+  console.log('handed over?',owned,await b.evaluate(()=>__coven.creatures.filter(c=>c.village===undefined).map(c=>[c.id,c.kind,c.remote?'remote':'ours',Math.round(c.hp)])));throw e;});
  assert.deepEqual(errors,[],'No browser errors');
  console.log('PASS: two browsers share a world: presence, real coven count, coven rite, shared harvesting, shared villages, chat, shared creatures with kill credit, cross-player bites, creature handover on leave.');
 }finally{await browser?.close();server.kill();}

@@ -149,6 +149,18 @@ try{
  assert.equal(await page.evaluate(()=>__coven.boss?.warded),false,'Grand Rite of four witches breaks the ward');
  assert.ok(await page.evaluate(()=>__coven.boss.hp<=4600),'Grand Rite deals full damage once the ward breaks');
  await shot(page,'crown');
+
+ // How to play lists every spell with what it does; Quit game in the pause menu saves and returns to the title.
+ await page.keyboard.press('KeyH');
+ assert.equal(await page.locator('#help section.spells li').count(),16,'How to play describes all 16 spells');
+ await page.keyboard.press('KeyH');
+ await page.keyboard.press('Escape');
+ await page.locator('#quit').waitFor({state:'visible'});
+ const kills=await page.evaluate(()=>__coven.state.player.stats.kills);
+ await Promise.all([page.waitForNavigation(),page.click('#quit')]);
+ await until(()=>!!window.__coven);
+ assert.equal(await page.evaluate(()=>__coven.mode),'menu','Quit returns to the title screen');
+ assert.equal(await page.evaluate(()=>__coven.state.player.stats.kills),kills,'Quit saved the game');
  assert.deepEqual(errors,[],'No browser errors');
- console.log('PASS: WebGL 2, Pages subpath, class choice, homeland start, walking, spell bar, village building, alchemy, solo casting with materials, equipment slots, broom riding, Skyward Charm and flight, human village alarm, glamour and trade, soul capture, Wyrd Titan, hunting and loot, map, boss ward and Grand Rite, no browser errors.');
+ console.log('PASS: WebGL 2, Pages subpath, class choice, homeland start, walking, spell bar, village building, alchemy, solo casting with materials, equipment slots, broom riding, Skyward Charm and flight, human village alarm, glamour and trade, soul capture, Wyrd Titan, hunting and loot, map, boss ward and Grand Rite, spell descriptions, quit and continue, no browser errors.');
 }finally{await browser?.close();await new Promise(resolve=>server.close(resolve));}
