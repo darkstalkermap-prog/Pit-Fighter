@@ -204,7 +204,7 @@ function eyeTexture(color) {
 export class HeroKit {
   constructor(envMap, fill = .22) {
     this.envMap = envMap; this.fill = fill; this.cache = new Map(); this.all = []; this.solos = new Map();
-    this.q = { ibl: false, detail: true, sheen: false }; this.sky = null; this.day = 1;
+    this.q = { ibl: false, detail: true, sheen: false }; this.sky = null; this.day = 1; this.envScale = 1;
     this.textures = detailTextures(); this.eyes = new Map();
   }
   mat(color, { metal = 0, rough = .8, glow = 0, glowColor, opacity = 1, side = THREE.FrontSide, kind } = {}) {
@@ -256,14 +256,15 @@ export class HeroKit {
     if (role === 'glow') return;
     const shiny = role === 'metal' || role === 'cornea' || role === 'eye' || role === 'eyeGlow';
     m.envMap = q.ibl ? (this.sky ?? this.envMap) : shiny ? this.envMap : null;
-    m.envMapIntensity = q.ibl ? { metal: 1, satin: .7, cornea: 1.2, skin: .38, hair: .45, cloth: .45 }[role] ?? .6 : .32;
+    m.envMapIntensity = (q.ibl ? { metal: 1, satin: .7, cornea: 1.2, skin: .38, hair: .45, cloth: .45 }[role] ?? .6 : .32) * (role === 'metal' || role === 'cornea' ? 1 : this.envScale);
     const detail = q.detail && { skin: [T.skinNormal, .35, 7], cloth: [T.clothNormal, .45, 14], metal: [T.metalNormal, .25, 5] }[role];
     m.normalMap = detail ? detail[0] : null;
     if (detail) { m.normalScale = new THREE.Vector2(detail[1], detail[1]); m.normalMap.repeat.set(detail[2], detail[2]); }
     m.roughnessMap = q.detail ? role === 'skin' ? T.skinRough : role === 'metal' ? T.metalRough : null : null;
     if (m.isMeshPhysicalMaterial) {
-      m.sheen = q.sheen ? role === 'hair' ? .8 : role === 'cloth' ? .55 : 0 : 0;
-      if (m.sheen) m.sheenColor = new THREE.Color(role === 'hair' ? '#ffffff' : '#d8d0e8'), m.sheenRoughness = role === 'hair' ? .3 : .7;
+      // A soft velvet rim on cloth and a gloss on hair; kept faint so dark cloth stays dark.
+      m.sheen = q.sheen ? role === 'hair' ? .5 : role === 'cloth' ? .22 : 0 : 0;
+      if (m.sheen) m.sheenColor = new THREE.Color(role === 'hair' ? '#d8d0c8' : '#6e6878'), m.sheenRoughness = role === 'hair' ? .35 : .8;
     }
     m.userData.fill = q.ibl ? .05 : this.fill;
     m.emissive?.setScalar(role === 'eyeGlow' ? 0 : m.userData.fill * (.4 + .6 * this.day));

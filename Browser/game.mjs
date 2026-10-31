@@ -1147,11 +1147,18 @@ const GFX_KEY = 'coven-gfx';
 let portrait = null, gfx = 'auto', frameAvg = 1 / 60, scaleTimer = 0, hudTimer = 0;
 try { gfx = localStorage.getItem(GFX_KEY) || 'auto'; } catch { /* default */ }
 $('#gfx').value = gfx; view.setQuality(gfx);
-$('#gfx').onchange = () => { gfx = $('#gfx').value; view.setQuality(gfx); try { localStorage.setItem(GFX_KEY, gfx); } catch { /* not remembered */ } };
+$('#gfx').onchange = () => { gfx = $('#gfx').value; view.setQuality(gfx); settleUntil = performance.now() + 3000; try { localStorage.setItem(GFX_KEY, gfx); } catch { /* not remembered */ } };
+// Auto graphics: lower the render resolution when frames run slow, raise it again when there is headroom, and
+// drop to a simpler level when even that is not enough. It works on the title screen too (the world is drawn
+// behind it), so the level has usually settled by the time you begin.
+let slowFrames = 0, settleUntil = performance.now() + 3000;
 function autoScale(raw, dt) {
-  if (raw > .25) return; // a stall (tab switch, chunk load), not a trend
+  if (gfx !== 'auto' || performance.now() < settleUntil) return;
+  // A run of very slow frames is no stall (a tab switch or a chunk loading): this level is too much.
+  if (raw > .25) { if (++slowFrames >= 5 && view.stepDown()) { slowFrames = 0; frameAvg = 1 / 30; scaleTimer = 3; } return; }
+  slowFrames = 0;
   frameAvg += (raw - frameAvg) * .05;
-  if (gfx !== 'auto' || mode !== 'playing' || (scaleTimer -= dt) > 0) return;
+  if ((mode !== 'playing' && mode !== 'menu' && mode !== 'paused') || (scaleTimer -= dt) > 0) return;
   // Far too slow for this level (a slideshow): a simpler level at once.
   if (frameAvg > 1 / 12 && view.stepDown()) { frameAvg = 1 / 30; scaleTimer = 3; return; }
   if (frameAvg > 1 / 38 && view.scale > .5) { view.setScale(Math.max(.5, view.scale - .1)); scaleTimer = 1; }

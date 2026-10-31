@@ -694,7 +694,7 @@ export class HeroPreview {
     const pmrem = new THREE.PMREMGenerator(this.renderer);
     // The studio light reflects in everything here, with every surface detail: it is one hero, close up.
     const studio = pmrem.fromScene(new RoomEnvironment(), .04).texture;
-    this.kit = new HeroKit(studio);
+    this.kit = new HeroKit(studio); this.kit.envScale = .45; // the studio is far brighter than the sky
     this.kit.setQuality({ ibl: true, detail: true, post: true }); this.kit.setEnvironment(studio);
     pmrem.dispose();
     const floor = new THREE.Mesh(new THREE.CircleGeometry(1.1, 40), new THREE.MeshBasicMaterial({ color: '#9a6bff', transparent: true, opacity: .12 }));

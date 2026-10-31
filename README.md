@@ -2,7 +2,7 @@
 
 An open-world survival RPG in the browser. You play a witch of a broken coven on a 5 km × 5 km island. Gather, hunt and brew to survive, build a village, level your skills, and recruit three sister witches. Coven spells need two, three or four witches, and only the four-witch Grand Rite can break the ward of the Unwitch at the Crown.
 
-Built with JavaScript and Three.js (WebGL 2). The world is deliberately low-detail for now (flat-shaded blocks, no shadows, a short view distance) while the mechanics are worked out; the witch heroes are the exception, modelled in detail with every worn piece of gear shown on them.
+Built with JavaScript and Three.js (WebGL 2). The world keeps a stylised, low-poly look, but it is lit and shaded physically: sun and moon shadows, filmic tone and adaptive exposure, aerial haze, swaying grass and trees, water that reflects the sky, and witch heroes with sculpted faces, real eyes that blink and look about, jointed fingers, and skin, hair, cloth and metal that each catch the light their own way.
 
 ## Play
 
@@ -10,7 +10,17 @@ Built with JavaScript and Three.js (WebGL 2). The world is deliberately low-deta
 
 Use a desktop browser with a keyboard and mouse. Progress saves in the browser's local storage.
 
-**Graphics** (title screen): *Auto* lowers the render resolution when frames slow down and raises it again when there is headroom; *High* keeps full resolution; *Low* also shortens the view distance, for older computers.
+**Graphics** (title screen):
+
+| Level | What you get |
+| --- | --- |
+| Ultra | 4× anti-aliasing, 4096 shadows over 80 m, dense grass, a longer view, up to 1.5× resolution on sharp screens. For strong graphics cards. |
+| High | 2× anti-aliasing and the final grade, 2048 shadows over 55 m, grass, sky-lit heroes with cloth and hair sheen, reflecting water. |
+| Medium | Shadows (1024, updated every other frame), fuller trees, surface detail and water; no grass or final pass. |
+| Low | The plain look of the earlier versions: no shadows, simple trees, a shorter view at 60% resolution. For older computers. |
+| Auto | Starts at High, lowers the resolution when frames slow down and drops to a simpler level if that isn't enough (it settles on the title screen, before you begin). |
+
+**Music** (title screen and [N] in game): witchy music made as you play: a drone, slow minor chords, a harp and a wooden flute by day, a music box by night, drums when something hunts you or the Unwitch is near. **How to play** (title screen and [H]) explains the goal, the rules and the controls; hovering spells, items, recipes and the health bars shows what they do.
 
 | Input | Action |
 | --- | --- |
@@ -25,6 +35,8 @@ Use a desktop browser with a keyboard and mouse. Progress saves in the browser's
 | Q | Eat your best food |
 | Tab or I / B / K / C | Inventory, build, skills, coven panels (Inventory · Craft · Alchemy · Build · Skills · Coven · Trade) |
 | M | World map |
+| H | How to play: the goal, the rules and the controls |
+| N | Music on or off |
 | Enter | Chat (online) |
 | Esc | Pause / close panel |
 
@@ -136,6 +148,8 @@ Every witch (you, your coven sisters, the elders and other players) is a detaile
 - **Hex Witch:** black and crimson laced with gold filigree, violet eyes, violet crystals on her hat, a swirl of runes turning in her off hand and a thorned staff holding a crystal.
 - **Wild Witch:** an antler crown with a skull and feathers, face paint, fringed hides and a skull belt, bare feet, and a forked antler staff with a hanging lantern.
 
+Faces are sculpted (cheekbones, a jaw narrowing to the chin, eye sockets and a brow, a shaped nose and ears) in natural proportion, about seven heads tall. Each eye has an iris with fibres and a darker rim, a clear cornea that catches the light, and lids with lashes; she blinks every few seconds, her eyes dart about, and she turns her head to what holds her attention (the elders watch you as you come near). Hands have four jointed fingers and a thumb, gripping the staff or open round the spell in the other hand. Skin lets light bleed red past the shadow line as real skin does, with fine pores; cloth has a woven texture and a faint velvet sheen; hair has a gloss; metal is finely scratched. Her stride follows how fast she really moves, so her feet don't slide; on slopes her hips drop to the lower foot and the other knee bends to meet the ground; standing, she shifts her weight from foot to foot; she leans into speed and into turns.
+
 The **elders** who give the quests wear their path's style in a revealing cut: bare shoulders, arms and midriff, wrapped in their land's flowers, moss, lace or hides, with a great staff, crown and amulet.
 
 Each worn piece of gear appears on her and grows richer with rarity: coloured trims, polished silver and gold, glowing gems and runes, and motes of light around epic and legendary gear. Capes ripple and trail, hair sways, and she walks, casts and rides her broom. The Inventory shows her in a turning portrait.
@@ -164,13 +178,28 @@ Mount the broom with **F** to travel 70% faster; it skims over water as well as 
 - **The coven:** recruit the elder of each other path at her Hearth: the first at level 3, the second at level 6, the third at level 9, each for a potion gift brewed from her own land's herbs (Ironbark Brew for the Bog elder, Gloamsight Philter for the Hex elder, Healing Draught for the Bloom elder, Swiftfoot Elixir for the Wild elder). Sisters follow you and fight with their own spells.
 - **Coven rites:** Summon Beast and Binding Circle (2 witches, Coven Ink), Storm of the Three and Call the Guardian (3 witches, Moonstone Dust), the Grand Rite (4 witches, Heartfire Sigil).
 - **The ultimate summon:** the Wyrd Titan, paid for in human souls (see Human villages).
+- **The beacon:** a pillar of light rises from the Crown, seen from anywhere on the isle: crimson while the Unwitch lives, gold once she is unmade.
 - **The end:** the Unwitch at the Crown takes only 10% damage until a Grand Rite cast within reach shatters her ward for 30 seconds, and she calls up to three thralls at a time. One batch of Heartfire Sigils (three) is enough for a Titan and two rites.
 
 A fifteen-step quest line guides the way from first gathering to the Grand Rite.
 
+## Realism: what code can do, and what it can't
+
+The heroes, the world and the light are now as convincing as a procedural, code-only build reasonably gets in a browser. Real lifelike quality needs authored assets that code cannot stand in for:
+
+| Asset | What it would take |
+| --- | --- |
+| Hero models | One sculpted, retopologised body per path, 30–60k triangles at the highest level of detail with 2–3 lower levels, UV-unwrapped, rigged to a standard humanoid skeleton with proper skin weights (the current heroes are rigid parts on bones), and facial blendshapes (the 52 ARKit shapes) for blinks, speech and expression. glTF 2.0, metres, Y up. |
+| Skin, hair and cloth textures | PBR sets per material at 2K (4K for faces): base colour, normal, roughness, ambient occlusion, and for skin a subsurface thickness/colour map; hair as alpha-tested hair cards with flow and anisotropy maps; KTX2/Basis-compressed for the web. |
+| Animation | Motion-captured clips on the same skeleton: idle variations, walk, jog, run and sprint at matched speeds, starts, stops and turns, strike and cast for each path, broom riding, hit reactions and death, plus blend trees and two-bone foot IK in the engine. |
+| The world | Tiling PBR terrain materials (grass, moss, soil, rock, sand, snow) at 1–2K with height-based blending; tree and foliage models with LODs and impostors; an HDR sky set for image-based light. |
+| Sound | Recorded or professionally produced music stems and spot effects (footsteps by surface, spells, creatures, ambience) to replace the procedural music. |
+
+The next upgrade with the biggest payoff would be the hero models: a properly sculpted, skinned and blend-shaped character for each path, with matching PBR textures, dropped into the existing pipeline (shadows, sky light, materials and tone are ready for them).
+
 ## Current limits
 
-This is a prototype. Players cannot damage each other, and human villages, their people and alarms are local to each player. Graphics are placeholder-level. Balance numbers are first guesses.
+This is a prototype. Players cannot damage each other, and human villages, their people and alarms are local to each player. The art is procedural (see above). Balance numbers come from bot playthroughs, not yet from many human players.
 
 ## Development
 
@@ -195,6 +224,8 @@ npm start
 | `Browser/view.mjs` | Three.js rendering |
 | `Browser/hero.mjs` | The detailed witch heroes and the gear they wear |
 | `Browser/sky.mjs` | The sky: day, dusk and night, sun, moon, stars, aurora, fireflies |
+| `Browser/graphics.mjs` | Quality levels, shadows, ground, foliage, grass and water shaders, the beacon, sky light for heroes, the final image |
+| `Browser/music.mjs` | Procedural witchy music (Web Audio) |
 | `Browser/loot.mjs` | Gear drops in five rarities |
 | `Browser/game.mjs` | Game loop, input, HUD and panels |
 | `Browser/net.mjs` | Connection to a shared world: server WebSocket, or a hosted game |
@@ -207,6 +238,24 @@ npm start
 `npm run profile -- [class] [seconds] [auto|high|low]` builds an unminified copy, plays it in headless Chromium and prints frame times, draw calls, triangles and the JavaScript functions that cost the most per frame (set `CHROMIUM_PATH` to use an installed Chromium).
 
 What keeps it light: each hero is drawn in a handful of calls, as one skinned mesh per finish (matte, satin, metal, see-through, glowing) whose bones are her moving parts, with colours painted into the vertices; the sky's gradient and glows are worked out per vertex, with stars as points and the aurora on a band of its own; terrain and resource nodes are lit once per vertex rather than per pixel; terrain heights are cached and distant chunks use fewer vertices (with skirts to hide seams); herbs, bushes and rocks are only drawn near you; landmarks and buildings are merged into one or two meshes each; nothing past the fog is drawn; campfire lights leave the shader in daylight; the HUD updates ten times a second and only touches what changed; and the server encodes each broadcast once.
+
+### Graphics comparisons
+
+`node Scripts/beauty_shots.mjs <page.html> <folder> [quality] [views]` takes the same views (the inventory portraits, the heroes by day and by night, a wide view of the hills) from any build, for before-and-after comparisons.
+
+Frame rates in headless Chromium's software renderer (SwiftShader, no graphics card: the worst case), at 1280×800 with Bloom at her hearth:
+
+| Level | Before this upgrade | After |
+| --- | --- | --- |
+| Low | 18.1 fps | 14.7 fps |
+| Medium | — | 5.0 fps |
+| High | 12.5 fps (no shadows, no anti-aliasing) | 1.5 fps |
+
+Software rendering pays for every pixel on the CPU, so shadows, anti-aliasing and per-pixel shading cost it far more than a graphics card; on a real GPU High is a light load. Auto settles at the level the computer can carry (in the software renderer it falls to Low at half resolution, 9.7 fps with four witches in view).
+
+### Four players
+
+`node Scripts/four_player_sim.mjs [seconds] [quality]` starts the real server and four browsers in one coven, gathers them and has them walk, fight and cast together, then reports each one's frame rate, network traffic, how far and how smoothly she sees the other three move, and the server's load. In a 45-second run: about 1–8 KB/s up and 11–31 KB/s down per player at 10 updates a second, the others drawn within 1.3 m of where they really are with smooth motion, no errors, and the server at about 2% of one CPU core.
 
 ### Hero lab
 
