@@ -11,7 +11,7 @@ import { CREATURE } from '../Browser/bestiary.mjs';
 export const LIMITS = { players: 32, name: 20, coven: 20, world: 16, chat: 200, buildings: 200 };
 // Creature ids are owner id × ID_SPAN + a local count, so a client can only create ids in its own range.
 export const CREATURE_RANGE = 500, ADOPT_RANGE = 250, MAX_OWNED = 64, ID_SPAN = 1e6;
-export const BOSS_HP = 6000, BOSS_RESPAWN_MS = 10 * 60 * 1000, BOSS_IDLE_RESET_MS = 60 * 1000, CROWN_RANGE = 400;
+export const BOSS_HP = 5000, BOSS_RESPAWN_MS = 10 * 60 * 1000, BOSS_IDLE_RESET_MS = 60 * 1000, CROWN_RANGE = 400;
 const BUILDING_TYPES = new Set(['heart', 'campfire', 'cauldron', 'palisade', 'lantern', 'hut', 'well', 'garden', 'totem', 'altar']);
 const CLASSES = new Set(['bog', 'hex', 'bloom', 'wild']);
 
@@ -137,7 +137,7 @@ export function createHub({ now = Date.now } = {}) {
       ward(m) {
         const b = client.world.boss;
         if (now() < b.downUntil) return;
-        b.wardUntil = now() + num(m.seconds, 0, 25) * 1000;
+        b.wardUntil = now() + num(m.seconds, 0, 30) * 1000;
         broadcast(client.world, { type: 'boss', boss: bossState(b) });
       },
       fx(m) {

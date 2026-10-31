@@ -336,8 +336,8 @@ export const QUESTS = [
   { title: 'First Gathering', text: 'Gather 10 wood, 10 stone and 6 herbs.', xp: 60, progress: p => (Math.min(10, p.stats.gathered.wood ?? 0) + Math.min(10, p.stats.gathered.stone ?? 0) + Math.min(6, p.stats.gathered.herbs ?? 0)) / 26 },
   { title: 'A Witch\'s Tools', text: 'Craft a Stone Hatchet [TAB].', xp: 60, progress: p => done(p.stats.crafted.hatchet) },
   { title: 'Found a Village', text: 'Build a Village Heart [B].', xp: 100, progress: p => done(p.stats.built.heart) },
-  { title: 'The Cauldron Bubbles', text: 'Build a Cauldron and brew any potion.', xp: 120, progress: p => (done(p.stats.built.cauldron) + done(p.stats.brewed)) / 2 },
-  { title: 'A Borrowed Face', text: 'Brew Glamour Dust, cast Glamour [8] and trade with a human merchant.', xp: 150, progress: p => done(p.stats.trades) },
+  { title: 'The Cauldron Bubbles', text: 'Build a Cauldron and brew any potion.', xp: 120, gift: { glamourDust: 2 }, progress: p => (done(p.stats.built.cauldron) + done(p.stats.brewed)) / 2 },
+  { title: 'A Borrowed Face', text: 'Cast Glamour [8] with the dust your elder sent and trade with a human merchant. Brew more from dewbell, nightshade and a feather.', xp: 150, progress: p => done(p.stats.trades) },
   { title: 'Seek a Sister', text: 'At level 3, bring a gift to another region\'s elder and ask her to join your coven.', xp: 200, progress: p => done(p.coven.length >= 1) },
   { title: 'Two Voices', text: 'Brew Coven Ink and cast a two-witch coven spell [3] or [4].', xp: 200, progress: p => done(p.stats.covenCasts) },
   { title: 'The Third Hearth', text: 'At level 6, recruit a second sister.', xp: 250, progress: p => done(p.coven.length >= 2) },
@@ -345,15 +345,16 @@ export const QUESTS = [
   { title: 'The Full Coven', text: 'At level 9, recruit the last sister.', xp: 400, progress: p => done(p.coven.length >= 3) },
   { title: 'Heartfire', text: 'Slay a lair elite and take its Heartfire.', xp: 400, progress: p => done(p.stats.eliteKills) },
   { title: 'Soul Harvest', text: 'Make Soul Jars at your altar and capture 3 human souls.', xp: 300, progress: p => Math.min(1, p.stats.souls / 3) },
-  { title: 'The Wyrd Titan', text: 'With a full coven, three souls and a Heartfire Sigil, summon the Wyrd Titan [9].', xp: 500, progress: p => done(p.stats.titans) },
+  { title: 'The Wyrd Titan', text: 'With a full coven, three souls and a Heartfire Sigil, summon the Wyrd Titan [9] at the Crown to face the Unwitch.', xp: 500, progress: p => done(p.stats.titans) },
   { title: 'The Grand Rite', text: 'With all four witches, break the Unwitch\'s ward at the Crown [7] and destroy her.', xp: 2000, progress: p => done(p.stats.boss) },
 ];
 
-// Completes the current quest if done. Returns the finished quest or null.
+// Completes the current quest if done, with its xp and any gift from the elder. Returns the finished quest or null.
 export function checkQuest(p) {
   const q = QUESTS[p.quest];
   if (!q || q.progress(p) < 1) return null;
   p.quest++;
   gainXp(p, q.xp);
+  for (const [id, n] of Object.entries(q.gift ?? {})) addItem(p, id, n);
   return q;
 }

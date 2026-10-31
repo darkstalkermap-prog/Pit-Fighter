@@ -144,6 +144,20 @@ export function createWorld(seed = 1337) {
 
   function region(x, z) { warpAt(x, z); return regionOfWarp(); }
 
+  // Ponds: one in every 420 m cell of the lowlands, its spot and size picked by a hash, sunk in a shallow basin,
+  // so no witch is far from a drink. Each pond stays inside its own cell, so only that cell is checked. Every
+  // hearth also has one of its own a short walk away.
+  const POND_CELL = 420, hash = (i, j, k) => { const v = Math.sin(i * 127.1 + j * 311.7 + k * 74.7 + seed * .013) * 43758.5453; return v - Math.floor(v); };
+  const HEARTH_PONDS = Object.values(REGIONS).map(({ quadrant: [qx, qz] }) => [qx * (2500 * LAYOUT - 80), qz * (2500 * LAYOUT - 80)]);
+  const basin = (h, d, r, low) => d > r * 2.2 ? h : lerp(lerp(h, 1, (1 - smoothstep(r * 1.1, r * 2.2, d)) * low), -2.5, (1 - smoothstep(r * .55, r, d)) * low);
+  function pond(x, z, h) {
+    if (h > 70 || h < 1) return h;
+    const i = Math.floor(x / POND_CELL), j = Math.floor(z / POND_CELL), low = 1 - smoothstep(45, 70, h); // none up in the mountains
+    let p = basin(h, Math.hypot(x - (i + .22 + hash(i, j, 1) * .56) * POND_CELL, z - (j + .22 + hash(i, j, 2) * .56) * POND_CELL), 16 + hash(i, j, 3) * 20, low);
+    for (const [px, pz] of HEARTH_PONDS) if (Math.abs(x - px) < 60 && Math.abs(z - pz) < 60) p = Math.min(p, basin(h, Math.hypot(x - px, z - pz), 22, low));
+    return p;
+  }
+
   // Also leaves the point's region in `lastRegion`, so callers that need both pay for the warp once.
   function height(x, z) {
     warpAt(x, z);
@@ -160,6 +174,7 @@ export function createWorld(seed = 1337) {
     const crest = 1 - Math.abs(ridge.fbm(x * .0015, z * .0015, 4));
     h += (1 - smoothstep(0, 420, border)) * pass * (60 + crest * crest * 160) * (1 - smoothstep(1800, 4200, r));
     h += (1 - smoothstep(150, 1300, r)) * 300 * (.7 + crest * .3);
+    h = pond(x, z, h);
     // Flat summit arena for the end boss.
     const summit = 1 - smoothstep(CROWN.radius, CROWN.radius + 60, r * LAYOUT);
     h = lerp(h, 330, summit);

@@ -147,7 +147,7 @@ try{
  await until(()=>__coven.boss?.warded===true); // the Unwitch appears, warded
  await page.evaluate(()=>{const p=__coven.state.player;p.x=12;p.z=0;for(const cls of ['bloom','wild'])if(!p.coven.includes(cls)){p.coven.push(cls);__coven.allies.push({id:990+p.coven.length,ally:'witch',cls,x:p.x,z:p.z+2,y:p.y,yaw:0,life:Infinity,cooldown:0,walk:0});}for(const a of __coven.allies){a.x=p.x+1;a.z=p.z+1;}p.inv.heartSigil=1;p.mana=p.maxMana;__coven.cast(6);});
  assert.equal(await page.evaluate(()=>__coven.boss?.warded),false,'Grand Rite of four witches breaks the ward');
- assert.ok(await page.evaluate(()=>__coven.boss.hp<=5600),'Grand Rite deals full damage once the ward breaks');
+ assert.ok(await page.evaluate(()=>__coven.boss.hp<=4600),'Grand Rite deals full damage once the ward breaks');
  await shot(page,'crown');
  assert.deepEqual(errors,[],'No browser errors');
  console.log('PASS: WebGL 2, Pages subpath, class choice, homeland start, walking, spell bar, village building, alchemy, solo casting with materials, equipment slots, broom riding, Skyward Charm and flight, human village alarm, glamour and trade, soul capture, Wyrd Titan, hunting and loot, map, boss ward and Grand Rite, no browser errors.');

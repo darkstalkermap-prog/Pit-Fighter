@@ -71,7 +71,9 @@ function begin(s) {
 
 // ---------- messages ----------
 // `rarity` (0-4) colours the message like the item it announces.
+const messages = []; // every toast, for the playthrough bot
 function toast(text, big = false, rarity = null) {
+  messages.push(text); if (messages.length > 400) messages.shift();
   const el = document.createElement('div');
   el.textContent = text; if (big) el.className = 'big';
   if (rarity !== null) el.style.color = RARITIES[rarity].color;
@@ -84,9 +86,16 @@ function reward(amount) {
   if (levels) toast(`Level ${p.level}. Your power grows.`, true);
 }
 function trained(skill, level) { if (level) toast(`${SKILLS[skill].name} rises to ${level}.`); }
+// Completes every quest that is done, in order: one finished earlier (an elite slain on the way) completes as
+// soon as it comes up.
 function quests() {
-  const q = R.checkQuest(state.player);
-  if (q) { toast(`Quest complete: ${q.title}`, true); if (R.QUESTS[state.player.quest]) toast(`New task: ${R.QUESTS[state.player.quest].title}`); }
+  let q, any = false;
+  while ((q = R.checkQuest(state.player))) {
+    any = true;
+    toast(`Quest complete: ${q.title}`, true);
+    if (q.gift) toast(`Your elder sends ${Object.entries(q.gift).map(([id, n]) => `${n} ${ITEMS[id].name}`).join(', ')}: enough to walk among humans unseen.`);
+  }
+  if (any && R.QUESTS[state.player.quest]) toast(`New task: ${R.QUESTS[state.player.quest].title}`);
 }
 
 // ---------- world queries ----------
@@ -415,7 +424,11 @@ function cast(index) {
   if (s.kind === 'summon') {
     const a = makeAlly(s.summon, p.x + Math.cos(yaw) * 3, p.z + Math.sin(yaw) * 3, s.duration);
     allies.push(a); ring(a.x, p.y, a.z, s.summon === 'titan' ? 12 : 3, s.color);
-    if (s.summon === 'titan') { p.stats.titans++; toast('Three souls burn. The earth splits, and the Wyrd Titan rises!', true); }
+    if (s.summon === 'titan') {
+      toast('Three souls burn. The earth splits, and the Wyrd Titan rises!', true);
+      // She is summoned to fight the Unwitch: only at the Crown does she answer the quest.
+      if (Math.hypot(p.x - CROWN.x, p.z - CROWN.z) < 250) p.stats.titans++; else toast('Far from the Crown, she will fade before she meets the Unwitch.');
+    }
     else toast(`${ALLIES[s.summon].name} answers the coven's call.`);
   }
   if (s.kind === 'enchant' && R.enchantBroom(p)) { ring(p.x, p.y, p.z, 4, s.color); toast('Two voices bind the wind into the bristles. Your broom is now a Skyward Broom: mount it [F] and hold Space to fly.', true); }
@@ -460,6 +473,11 @@ function collide(x, z) {
 }
 
 // ---------- simulation ----------
+const warned = new Set();
+function need(p, key, low, text) {
+  if (p[key] < low) { if (!warned.has(key + low)) { warned.add(key + low); toast(text); } }
+  else if (p[key] > low + 10) warned.delete(key + low);
+}
 function updatePlayer(dt) {
   const p = state.player;
   const f = (keys.has('KeyW') ? 1 : 0) - (keys.has('KeyS') ? 1 : 0), s = (keys.has('KeyD') ? 1 : 0) - (keys.has('KeyA') ? 1 : 0);
@@ -491,6 +509,7 @@ function updatePlayer(dt) {
     } else { p.y = floor + .4; p.vy = 0; }
     p.grounded = !p.flying;
   } else if (g < -1.3) { p.y += (-1.1 - p.y) * Math.min(1, dt * 6); p.vy = 0; p.grounded = false; }
+  else if (p.grounded && p.vy <= 0 && p.y - g < .6) { p.y = g; p.vy = 0; } // walking downhill keeps your feet on the slope
   else {
     p.vy -= 22 * dt; p.y += p.vy * dt;
     if (p.y <= g) {
@@ -503,7 +522,13 @@ function updatePlayer(dt) {
   const surface = world.surface(p.x, p.z), cold = (surface === 'snow' || surface === 'peaks' && isNight()) && !nearFire(10);
   if (cold && !p.cold && !R.warm(p)) toast('The cold bites. Find a fire or craft a Hide Cloak.');
   p.cold = cold;
-  if (R.tickSurvival(p, dt, { sprinting: p.sprinting, swimming: !p.mounted && g < -1.3, cold })) {
+  const died = R.tickSurvival(p, dt, { sprinting: p.sprinting, swimming: !p.mounted && g < -1.3, cold });
+  // Warn once as hunger and thirst set in: the bars alone are easy to miss.
+  need(p, 'food', 20, 'You are hungry. Eat [Q]: cook meat at a fire [E], or gather berries from bushes.');
+  need(p, 'food', .01, 'You are starving and losing health! Eat something [Q].');
+  need(p, 'water', 20, 'You are thirsty. Drink at a pond or a well [E].');
+  need(p, 'water', .01, 'You are dying of thirst! Find water [E].');
+  if (died) {
     toast('You have fallen.', true); toast(`You wake at ${p.home.name}.`);
     R.respawn(p); p.mounted = p.flying = false; p.y = world.ground(p.x, p.z);
     dropCreatures(c => !near(c, p, 80) || c.remote);
@@ -571,7 +596,7 @@ function updateBoss(dt) {
   const p = state.player, dCrown = Math.hypot(p.x - CROWN.x, p.z - CROWN.z);
   if (net.online ? serverBoss?.down : state.bossDefeated) { boss = null; return; }
   if (!boss && dCrown < 160) {
-    boss = { id: 'boss', x: CROWN.x, z: CROWN.z, y: world.ground(0, 0), yaw: 0, hp: net.online ? serverBoss.hp : state.bossHp, maxHp: BOSS.hp, warded: true, wardTimer: 0, slam: 3, cast: 2, summon: 12, walk: 0, hurt: 0 };
+    boss = { id: 'boss', x: CROWN.x, z: CROWN.z, y: world.ground(0, 0), yaw: 0, hp: net.online ? serverBoss.hp : state.bossHp, maxHp: BOSS.hp, warded: true, wardTimer: 0, slam: 3, cast: 2, summon: 12, walk: 0, hurt: 0, state: 'chase' }; // always a target for allies
     toast('The Unwitch awakens at the Crown. Only the Grand Rite of a full coven can break her ward.', true);
   }
   if (!boss) return;
@@ -586,11 +611,13 @@ function updateBoss(dt) {
   if (boss.slam <= 0 && d < 8) { boss.slam = 3.5; view.ring(boss.x, boss.y, boss.z, 8, '#ff3c6e'); R.damagePlayer(p, BOSS.damage); hurtFlash = .4; }
   if (boss.cast <= 0 && d < 45 && p.hp > 0) { boss.cast = 3; projectiles.push({ id: nextId++, x: boss.x, y: boss.y + 6, z: boss.z, target: 'player', amount: 18, color: '#ff3c6e', opts: {}, fromPlayer: false }); }
   // Online, only the lowest-numbered player at the Crown raises thralls, so they are not doubled.
-  if (boss.summon <= 0 && net.online && [...remotes.values()].some(r => r.id < net.id && Math.hypot(r.x - CROWN.x, r.z - CROWN.z) < 160)) boss.summon = 22;
+  if (boss.summon <= 0 && net.online && [...remotes.values()].some(r => r.id < net.id && Math.hypot(r.x - CROWN.x, r.z - CROWN.z) < 160)) boss.summon = 28;
+  // At most three thralls at a time, so a long fight doesn't become a flood.
+  if (boss.summon <= 0 && creatures.filter(c => c.thrall && c.hp > 0).length > 1) boss.summon = 8;
   if (boss.summon <= 0) {
-    boss.summon = 22;
+    boss.summon = 28;
     const pool = BESTIARY.filter(b => !b.elite && b.level >= 6 && !b.fly);
-    for (let i = 0; i < 2; i++) { const b = pool[Math.floor(Math.random() * pool.length)], a = Math.random() * 6.28; creatures.push(Object.assign(newCreature(b.id, boss.x + Math.cos(a) * 10, boss.z + Math.sin(a) * 10), { state: 'chase', angry: true })); }
+    for (let i = 0; i < 2; i++) { const b = pool[Math.floor(Math.random() * pool.length)], a = Math.random() * 6.28; creatures.push(Object.assign(newCreature(b.id, boss.x + Math.cos(a) * 10, boss.z + Math.sin(a) * 10), { state: 'chase', angry: true, thrall: true })); }
     toast('The Unwitch calls her thralls!');
   }
 }
@@ -1025,7 +1052,10 @@ canvas.addEventListener('mousedown', e => {
 const saved = loadState();
 if (saved) { begin(saved); $('#play').innerHTML = 'CONTINUE <span>→</span>'; $('#newGame').classList.remove('hidden'); }
 else begin(freshState('wild'));
-window.__coven = { net, get remotes() { return remotes; }, get villages() { return villages; }, get state() { return state; }, world, view, get creatures() { return creatures; }, get allies() { return allies; }, get boss() { return boss; }, cast, placeBuilding, get mode() { return mode; }, spawn: (kind, x, z) => creatures.push(newCreature(kind, x, z)), loot: { generateGear, addGear }, equip: id => R.equip(state.player, id), get portrait() { return portrait; }, aim: (y, p) => { yaw = y; pitch = p; }, hit: (c, n) => damage(c, n), humanVillages, villageState, interact: () => interaction()?.act() };
+window.__coven = { net, get remotes() { return remotes; }, get villages() { return villages; }, get state() { return state; }, world, view, get creatures() { return creatures; }, get allies() { return allies; }, get boss() { return boss; }, cast, placeBuilding, get mode() { return mode; }, spawn: (kind, x, z) => creatures.push(newCreature(kind, x, z)), loot: { generateGear, addGear }, equip: id => R.equip(state.player, id), get portrait() { return portrait; }, aim: (y, p) => { yaw = y; pitch = p; }, hit: (c, n) => damage(c, n), humanVillages, villageState, interact: () => interaction()?.act(),
+  // For the playthrough bot (Scripts/playthrough.mjs): run the game for `seconds` without drawing it, and read what it said.
+  step: seconds => { for (let i = 0; i < seconds * 60 && mode === 'playing'; i++) { update(1 / 60); if (i % 15 === 0) view.stream(state.player.x, state.player.z, 2); } },
+  messages };
 // Without a save, the menu shows the world behind it but play starts at class selection.
 if (!saved) state = null;
 const preview = freshState('wild');

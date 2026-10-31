@@ -1,6 +1,6 @@
 # Coven
 
-An open-world survival RPG in the browser. You play a witch of a broken coven on a 10 km × 10 km island. Gather, hunt and brew to survive, build a village, level your skills, and recruit three sister witches. Coven spells need two, three or four witches, and only the four-witch Grand Rite can break the ward of the Unwitch at the Crown.
+An open-world survival RPG in the browser. You play a witch of a broken coven on a 5 km × 5 km island. Gather, hunt and brew to survive, build a village, level your skills, and recruit three sister witches. Coven spells need two, three or four witches, and only the four-witch Grand Rite can break the ward of the Unwitch at the Crown.
 
 Built with JavaScript and Three.js (WebGL 2). The world is deliberately low-detail for now (flat-shaded blocks, no shadows, a short view distance) while the mechanics are worked out; the witch heroes are the exception, modelled in detail with every worn piece of gear shown on them.
 
@@ -67,6 +67,19 @@ Render's free tier sleeps when idle, so the first connection after a quiet spell
 
 The island is split into four lands around the Crown, a mountain summit at its centre. Mountain ridges with passes divide the lands. Danger rises from 1 at the coast to 12 at the Crown.
 
+Each land is mapped into three **zones** by level, ringed towards the Crown; the HUD shows the zone you are in and its levels, and the map [M] outlines them:
+
+| Levels | Mirefen | Gloamwood | Springvale | Greenwood |
+| --- | --- | --- | --- | --- |
+| 1–3 (green) | Mirefen Shallows | Gloam Edge | Springvale Fields | Greenwood Glades |
+| 4–7 (yellow) | Rotwater Reach | Hollow Night Wood | Hive Hills | Howling Pines |
+| 8–11 (orange) | Wyrmdeep Bog | Mourning Thicket | Bramble Heath | Elderhorn Old Growth |
+| 12–15 (red) | The Crown | | | |
+
+Ponds and small lakes lie all over the lowlands (one a short walk from every Hearth), so there is always water to drink nearby.
+
+**The sky** turns from blue day through a glowing sunset to a starry night: a rayed sun with a warm halo, a cratered moon ringed by slowly turning runes, aurora ribbons over the north, shooting stars, and fireflies round you after dark.
+
 | Land | Quadrant | Witch | Herbs |
 | --- | --- | --- | --- |
 | The Mirefen (swamp) | south-west | Bog Witch | Mirecap, Bog Myrtle, Leechweed |
@@ -81,10 +94,10 @@ Each land has a **Hearth** (class starting point, with that path's elder) and a 
 Eight walled villages (two in each land) hold houses, a chapel, a market stall, villagers, gate guards and **witch hunters**. Humans hate witches:
 
 - Walk in as yourself and the **alarm** goes up: witch hunters chase you down and villagers flee. An alarm lasts three minutes.
-- Cast **Glamour** [8] (needs Glamour Dust, brewed from Dewbell, Nightshade and a feather) to wear a human face for 150 seconds. Your coven sisters and familiar wait outside. Enter through a gate and trade with the merchant [E]: sell hides, herbs, potions and essences for **silver**; buy bread, ale, bandages, a Wool Cloak, and Iron Hatchets and Picks that gather far more.
+- Cast **Glamour** [8] (needs Glamour Dust, brewed from Dewbell, Nightshade and a feather; your elder sends you two pinches when you brew your first potion) to wear a human face for 150 seconds. Your coven sisters and familiar wait outside. Enter through a gate and trade with the merchant [E]: sell hides, herbs, potions and essences for **silver**; buy bread, ale, bandages, a Wool Cloak, and Iron Hatchets and Picks that gather far more.
 - Casting any other spell, striking anyone, or letting the glamour run out inside the walls breaks the illusion and raises the alarm. You cannot glamour a village that is already on guard.
 - A human who dies near you leaves a **soul**. Carry empty **Soul Jars** (made at your Ritual Altar from moonstone and slime) to capture them.
-- **Human Souls** are the price of the ultimate summon: **Summon the Wyrd Titan** [9] needs four witches, three souls and a Heartfire Sigil, and raises a colossal ally for 90 seconds.
+- **Human Souls** are the price of the ultimate summon: **Summon the Wyrd Titan** [9] needs four witches, three souls and a Heartfire Sigil, and raises a colossal ally for 90 seconds. Summon her at the Crown, where she can face the Unwitch.
 
 ## Witch classes and familiars
 
@@ -116,7 +129,16 @@ Creatures drop armor and weapons scaled to their level, in five rarities: **grey
 
 ## The witches
 
-Every witch (you, your coven sisters, the elders and other players) is a detailed hero: a sculpted face with eyes, brows and lips, flowing hair, a curled and bent witch's hat decorated by path (mushrooms and moss for the Bog Witch, a crescent charm and raven feather for the Hex Witch, a crown of flowers for the Bloom Witch, twig antlers and leaves for the Wild Witch), a laced bodice, layered and tattered skirts, bell sleeves, a belt with pouch and potion, and boots. Each worn piece appears on her and grows richer with rarity: coloured trims, polished silver and gold, glowing gems and runes, and motes of light around epic and legendary gear. Capes ripple and trail, hair sways, and she walks, casts and rides her broom. The Inventory shows her in a turning portrait.
+Every witch (you, your coven sisters, the elders and other players) is a detailed hero, and each path has its own look:
+
+- **Bloom Witch:** pink hair streaked with green, a wide pink hat covered in flowers and hung with crystals, a petal gown in pink and spring green, butterflies about her, a green spell orb in one hand and a staff crowned with a glowing crystal lotus.
+- **Bog Witch:** a hunched moss hag under a shroud of moss and hanging strands, glowing yellow eyes and a crooked grin, a little cauldron bubbling in one hand and a staff topped with a glowing mushroom trailing tendrils.
+- **Hex Witch:** black and crimson laced with gold filigree, violet eyes, violet crystals on her hat, a swirl of runes turning in her off hand and a thorned staff holding a crystal.
+- **Wild Witch:** an antler crown with a skull and feathers, face paint, fringed hides and a skull belt, bare feet, and a forked antler staff with a hanging lantern.
+
+The **elders** who give the quests wear their path's style in a revealing cut: bare shoulders, arms and midriff, wrapped in their land's flowers, moss, lace or hides, with a great staff, crown and amulet.
+
+Each worn piece of gear appears on her and grows richer with rarity: coloured trims, polished silver and gold, glowing gems and runes, and motes of light around epic and legendary gear. Capes ripple and trail, hair sways, and she walks, casts and rides her broom. The Inventory shows her in a turning portrait.
 
 ## Equipment and the broom
 
@@ -130,7 +152,7 @@ The **Inventory** shows ten slots: Head, Chest, Hands, Feet, Cloak, Amulet, Weap
 | Moonstone Amulet (+25 mana) | Amulet | moonstone + silk |
 | Witch's Broom | Mount | wood + fiber + feathers |
 
-Mount the broom with **F** to travel 70% faster; it skims over water as well as land. A plain broom cannot fly: cast the **Skyward Charm** [0] with a second witch beside you (an AI sister or another player in your coven) and it becomes a **Skyward Broom** for good, which flies on its own: hold **Space** to climb and **X** to descend. Coven sisters ride alongside. Stepping off high in the air means a hard landing.
+Mount the broom with **F** to travel 70% faster; it skims over water as well as land. A plain broom cannot fly: cast the **Skyward Charm** [0] with a second witch beside you (an AI sister or another player in your coven) and it becomes a **Skyward Broom** for good, which flies on its own at 200% faster than walking: hold **Space** to climb and **X** to descend. Coven sisters ride alongside. Stepping off high in the air means a hard landing.
 
 ## Progression
 
@@ -139,10 +161,10 @@ Mount the broom with **F** to travel 70% faster; it skims over water as well as 
 - **Crafting** by hand: hatchet, pick, spear, staff, cloak, bandages.
 - **Alchemy** at your Cauldron: Healing Draught, Mana Tonic, Swiftfoot Elixir, Venom Coating, Ironbark Brew, Gloamsight Philter, Coven Ink. At a Ritual Altar: Moonstone Dust and Heartfire Sigils.
 - **Village:** found it with a Village Heart, then build within 60 m: Cauldron, Witch Hut (rest and respawn), Well, Herb Garden (grows homeland herbs), Warding Totem (beasts stay away), Ritual Altar, Palisade walls and Lantern Posts. Campfires can go anywhere.
-- **The coven:** recruit the elder of each other path at her Hearth: the first at level 3, the second at level 6, the third at level 9, each for a potion gift. Sisters follow you and fight with their own spells.
+- **The coven:** recruit the elder of each other path at her Hearth: the first at level 3, the second at level 6, the third at level 9, each for a potion gift brewed from her own land's herbs (Ironbark Brew for the Bog elder, Gloamsight Philter for the Hex elder, Healing Draught for the Bloom elder, Swiftfoot Elixir for the Wild elder). Sisters follow you and fight with their own spells.
 - **Coven rites:** Summon Beast and Binding Circle (2 witches, Coven Ink), Storm of the Three and Call the Guardian (3 witches, Moonstone Dust), the Grand Rite (4 witches, Heartfire Sigil).
 - **The ultimate summon:** the Wyrd Titan, paid for in human souls (see Human villages).
-- **The end:** the Unwitch at the Crown takes only 10% damage until a Grand Rite cast within reach shatters her ward for 25 seconds.
+- **The end:** the Unwitch at the Crown takes only 10% damage until a Grand Rite cast within reach shatters her ward for 30 seconds, and she calls up to three thralls at a time. One batch of Heartfire Sigils (three) is enough for a Titan and two rites.
 
 A fifteen-step quest line guides the way from first gathering to the Grand Rite.
 
@@ -171,6 +193,9 @@ npm start
 | `Browser/rules.mjs` | Inventory, skills, crafting, alchemy, building, needs, magic, coven, quests |
 | `Browser/creatures.mjs` | Creature and ally behaviour |
 | `Browser/view.mjs` | Three.js rendering |
+| `Browser/hero.mjs` | The detailed witch heroes and the gear they wear |
+| `Browser/sky.mjs` | The sky: day, dusk and night, sun, moon, stars, aurora, fireflies |
+| `Browser/loot.mjs` | Gear drops in five rarities |
 | `Browser/game.mjs` | Game loop, input, HUD and panels |
 | `Browser/net.mjs` | Connection to a shared world: server WebSocket, or a hosted game |
 | `Browser/peer.mjs` | Player-hosted games over WebRTC: host (runs `server/hub.mjs` in the browser) and join by code |
@@ -181,7 +206,15 @@ npm start
 
 `npm run profile -- [class] [seconds] [auto|high|low]` builds an unminified copy, plays it in headless Chromium and prints frame times, draw calls, triangles and the JavaScript functions that cost the most per frame (set `CHROMIUM_PATH` to use an installed Chromium).
 
-What keeps it light: terrain heights are cached and distant chunks use fewer vertices (with skirts to hide seams); herbs, bushes and rocks are only drawn near you; landmarks and buildings are merged into one or two meshes each; nothing past the fog is drawn; campfire lights leave the shader in daylight; the HUD updates ten times a second and only touches what changed; and the server encodes each broadcast once.
+What keeps it light: each hero is drawn in a handful of calls, as one skinned mesh per finish (matte, satin, metal, see-through, glowing) whose bones are her moving parts, with colours painted into the vertices; the sky's gradient and glows are worked out per vertex, with stars as points and the aurora on a band of its own; terrain and resource nodes are lit once per vertex rather than per pixel; terrain heights are cached and distant chunks use fewer vertices (with skirts to hide seams); herbs, bushes and rocks are only drawn near you; landmarks and buildings are merged into one or two meshes each; nothing past the fog is drawn; campfire lights leave the shader in daylight; the HUD updates ten times a second and only touches what changed; and the server encodes each broadcast once.
+
+### Hero lab
+
+`node Scripts/hero_shots.mjs <folder> [class…]` renders each class's hero at three looks (starting gear, legendary gear, and the revealing elder) from the front, the back and close up, for checking the models.
+
+### Playthrough
+
+`npm run build && npm run playthrough -- [class] [first quest] [last quest]` lets a bot witch play the whole quest line in headless Chromium, through the game's own keys, mouse and pack buttons, many times faster than real time (`Scripts/playbot.mjs`): she walks round the Crown and the lairs, gathers, crafts, builds her village, brews, trades in a glamour, recruits her sisters, hunts the elite, takes souls, summons the Titan and fights the Unwitch, eating, drinking and healing as she goes. Whatever stops her (getting stuck, dying, a quest she cannot finish) is written to `test-results/playthrough-<class>.md` with screenshots along the way; if she cannot finish a quest she is helped past it and the run goes on.
 
 ### Browser test
 

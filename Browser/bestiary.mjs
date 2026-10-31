@@ -71,6 +71,6 @@ export const HUMANS = [
 export const CREATURE = Object.fromEntries([...BESTIARY, ...HUMANS].map(b => [b.id, b]));
 
 // The boss at the Crown. Warded: takes 10% damage until the Grand Rite breaks the ward.
-export const BOSS = { id: 'unwitch', name: 'The Unwitch', level: 15, hp: 6000, damage: 26, plan: 'biped', size: 3.2, color: '#14101c', accent: '#ff3c6e', xp: 3000 };
+export const BOSS = { id: 'unwitch', name: 'The Unwitch', level: 15, hp: 5000, damage: 26, plan: 'biped', size: 3.2, color: '#14101c', accent: '#ff3c6e', xp: 3000 };
 
 export const ELITE_RESPAWN = 900;

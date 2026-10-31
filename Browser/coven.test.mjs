@@ -30,6 +30,14 @@ test('the island is four regions around the Crown, ringed by sea', () => {
   assert.equal(world.danger(HALF, HALF), 1);
 });
 
+test('water is never far: a pond by every hearth, and lakes all over the lowlands', () => {
+  const waterWithin = (x, z, r) => { for (let d = 5; d <= r; d += 5) for (let a = 0; a < Math.PI * 2; a += 4 / d) if (world.ground(x + Math.cos(a) * d, z + Math.sin(a) * d) < -.2) return true; return false; };
+  for (const id of Object.keys(REGIONS)) { const h = world.hearthOf(id); assert.ok(waterWithin(h.x, h.z, 150), `water by ${h.name}`); }
+  let far = 0, land = 0;
+  for (let x = -HALF * .7; x <= HALF * .7; x += 250) for (let z = -HALF * .7; z <= HALF * .7; z += 250) if (world.ground(x, z) > 0 && Math.hypot(x, z) > 700) { land++; if (!waterWithin(x, z, 500)) far++; }
+  assert.ok(far / land < .05, `${far} of ${land} lowland spots are over 500 m from water`);
+});
+
 test('the map is zoned by level: three rings in each land, then the Crown', () => {
   assert.deepEqual(ZONE_LEVELS.flat(), [1, 3, 4, 7, 8, 11, 12, 15], 'ranges run 1 to 15 without gaps');
   for (const id of Object.keys(REGIONS)) {
@@ -453,6 +461,18 @@ test('the look of a witch: what she wears, shared as a short string', () => {
   assert.deepEqual(look, { chest: ['mail', 2], weapon: ['staff', 1] });
   assert.deepEqual(decodeLook(encodeLook(look)), look);
   assert.deepEqual(decodeLook('head:<script>:9|chest:robe:9|nope:hat:1'), { chest: ['robe', 4] }, 'bad parts are dropped, rarity clamped');
+});
+
+test('each sister\'s gift is brewed from her own land\'s herbs, and your elder sends Glamour Dust for the first trade', () => {
+  for (const k of Object.values(CLASSES)) {
+    const herbs = Object.keys(RECIPES.find(r => r.id === k.gift).needs);
+    assert.ok(herbs.every(h => ITEMS[h].herb === k.region), `${k.gift} is made from ${REGIONS[k.region].name} herbs`);
+  }
+  const p = player('wild');
+  p.quest = R.QUESTS.findIndex(q => q.title === 'The Cauldron Bubbles');
+  p.stats.built.cauldron = 1; p.stats.brewed = 1;
+  assert.equal(R.checkQuest(p).title, 'The Cauldron Bubbles');
+  assert.equal(R.count(p, 'glamourDust'), 2);
 });
 
 test('alone, any spell can be cast once its materials are met', () => {
