@@ -122,7 +122,7 @@ export function createHub({ now = Date.now } = {}) {
       hit(m) {
         const c = client.world.creatures.get(m.id), owner = c && client.world.players.get(c.owner);
         if (!owner || owner === client) return;
-        owner.send(JSON.stringify({ type: 'hit', id: c.id, amount: num(m.amount, 0, 5000), poison: num(m.poison, 0, 50), slow: num(m.slow, 0, 30), root: num(m.root, 0, 30), from: client.id }));
+        owner.send(JSON.stringify({ type: 'hit', id: c.id, amount: num(m.amount, 0, 5000), poison: num(m.poison, 0, 50), slow: num(m.slow, 0, 30), root: num(m.root, 0, 30), weaken: num(m.weaken, 0, 30), from: client.id }));
       },
       bite(m) {
         const target = client.world.players.get(m.to);

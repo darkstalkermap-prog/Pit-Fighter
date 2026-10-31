@@ -65,7 +65,7 @@ Render's free tier sleeps when idle, so the first connection after a quiet spell
 
 ## The world
 
-The island is split into four lands around the Crown, a mountain summit at its centre. Mountain ridges with passes divide the lands. Danger rises from 1 at the coast to 12 at the Crown.
+The island is split into four lands around the Crown, a mountain summit at its centre. Mountain ridges with passes divide the lands, and inside them open lowland gives way to rolling hill country and craggy ranges: the Gloamwood is the most rugged, the Greenwood and the meadows rolling, the Mirefen low and flat. The coasts, the ground round each Hearth and the human villages' sites stay gentle. Danger rises from 1 at the coast to 12 at the Crown.
 
 Each land is mapped into three **zones** by level, ringed towards the Crown; the HUD shows the zone you are in and its levels, and the map [M] outlines them:
 
@@ -104,7 +104,7 @@ Eight walled villages (two in each land) hold houses, a chapel, a market stall, 
 | Class | Spells | Familiar | Bonus | Ability |
 | --- | --- | --- | --- | --- |
 | Bog Witch | Leech Bolt, Miasma | Grimtoad | Immune to poison | Strikes and spells poison foes |
-| Hex Witch | Shadow Bolt, Withering Hex | Corvin the Raven | Undiscovered places show on the compass | +25% spell damage at night |
+| Hex Witch | Shadow Bolt, Withering Hex (its curse also makes the target strike 45% softer for 8 s, the Unwitch included) | Corvin the Raven | Undiscovered places show on the compass | +25% spell damage at night |
 | Bloom Witch | Sunburst, Renewal | Clover the Hare | +15% move speed | Herbs and berries yield double |
 | Wild Witch | Thorn Lash, Barkskin | Ember the Fox | +1 meat and hide from hunts | Ember fights beside you |
 

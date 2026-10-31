@@ -3,7 +3,7 @@ import { WorldView, HeroPreview } from './view.mjs';
 import { CLASSES, SPELLS, ITEMS, RECIPES, BUILDINGS, SKILLS, VILLAGE_RADIUS, SELL, BUY, COVEN_SPELLS, SLOTS } from './data.mjs';
 import { CREATURE, BESTIARY, BOSS, ELITE_RESPAWN } from './bestiary.mjs';
 import * as R from './rules.mjs';
-import { makeCreature, pickCreature, updateCreature, hurtCreature, makeAlly, updateAlly, ALLIES } from './creatures.mjs';
+import { makeCreature, pickCreature, updateCreature, hurtCreature, makeAlly, updateAlly, ALLIES, WEAKENED } from './creatures.mjs';
 import { Net, defaultServer } from './net.mjs';
 import { RARITIES, dropGear, generateGear, addGear, registerGear, salvage, lookOf, encodeLook } from './loot.mjs';
 
@@ -304,6 +304,7 @@ function pickTarget(range) {
 function damage(target, amount, opts = {}, fromPlayer = true) {
   const p = state.player;
   if (target === boss) {
+    if (opts.weaken) boss.weak = Math.max(boss.weak ?? 0, opts.weaken);
     if (net.online) { net.send({ type: 'bossHit', amount }); boss.hp -= amount * (boss.warded ? .1 : 1); boss.hurt = 3; return; }
     boss.hp -= amount * (boss.warded ? .1 : 1); boss.hurt = 3;
     state.bossHp = boss.hp;
@@ -316,7 +317,7 @@ function damage(target, amount, opts = {}, fromPlayer = true) {
   const b = CREATURE[target.kind];
   if (target.remote) {
     const bonus = fromPlayer ? 1 + (R.skillLevel(p, 'hunting') - 1) * .02 : 1, poison = fromPlayer && R.poisonsOnHit(p) ? Math.max(opts.poison ?? 0, 4) : opts.poison ?? 0;
-    net.send({ type: 'hit', id: target.id, amount: amount * bonus, poison, slow: opts.slow ?? 0, root: opts.root ?? 0 });
+    net.send({ type: 'hit', id: target.id, amount: amount * bonus, poison, slow: opts.slow ?? 0, root: opts.root ?? 0, weaken: opts.weaken ?? 0 });
     target.hurt = 3; // the owner applies the damage; show the flinch now
     return;
   }
@@ -404,7 +405,7 @@ function cast(index) {
   trained('spellcraft', R.payCast(p, id));
   swing = 1; p.yaw = yaw;
   const area = (x, z, radius, fn) => hostiles().filter(c => c.hp > 0 && Math.hypot(c.x - x, c.z - z) < radius).forEach(fn);
-  if (s.kind === 'bolt') bolt(p, target, s.damage * power, s.color, { poison: s.poison, slow: s.slow, lifesteal: s.lifesteal });
+  if (s.kind === 'bolt') bolt(p, target, s.damage * power, s.color, { poison: s.poison, slow: s.slow, lifesteal: s.lifesteal, weaken: s.weaken });
   if (s.kind === 'aoe') {
     ring(target.x, target.y, target.z, s.radius, s.color);
     area(target.x, target.z, s.radius, c => damage(c, s.damage * power, { poison: s.poison }));
@@ -601,15 +602,16 @@ function updateBoss(dt) {
   }
   if (!boss) return;
   if (dCrown > 400) { boss = null; if (!net.online) state.bossHp = BOSS.hp; return; }
-  boss.hurt = Math.max(0, boss.hurt - dt);
+  boss.hurt = Math.max(0, boss.hurt - dt); boss.weak = Math.max(0, (boss.weak ?? 0) - dt);
+  const blow = boss.weak > 0 ? WEAKENED : 1; // a withering curse softens her too
   if (!boss.warded && !net.online) { boss.wardTimer -= dt; if (boss.wardTimer <= 0) { boss.warded = true; toast('The Unwitch\'s ward knits itself back together.'); } }
   const d = dist(boss, p);
   boss.yaw = Math.atan2(p.z - boss.z, p.x - boss.x);
   if (d > 6 && dCrown < 90 && p.hp > 0) { const nx = boss.x + Math.cos(boss.yaw) * 4 * dt, nz = boss.z + Math.sin(boss.yaw) * 4 * dt; if (Math.hypot(nx, nz) < 80) { boss.x = nx; boss.z = nz; boss.walk += 4 * dt; } }
   boss.y = world.ground(boss.x, boss.z);
   boss.slam -= dt; boss.cast -= dt; boss.summon -= dt;
-  if (boss.slam <= 0 && d < 8) { boss.slam = 3.5; view.ring(boss.x, boss.y, boss.z, 8, '#ff3c6e'); R.damagePlayer(p, BOSS.damage); hurtFlash = .4; }
-  if (boss.cast <= 0 && d < 45 && p.hp > 0) { boss.cast = 3; projectiles.push({ id: nextId++, x: boss.x, y: boss.y + 6, z: boss.z, target: 'player', amount: 18, color: '#ff3c6e', opts: {}, fromPlayer: false }); }
+  if (boss.slam <= 0 && d < 8) { boss.slam = 3.5; view.ring(boss.x, boss.y, boss.z, 8, '#ff3c6e'); R.damagePlayer(p, BOSS.damage * blow); hurtFlash = .4; }
+  if (boss.cast <= 0 && d < 45 && p.hp > 0) { boss.cast = 3; projectiles.push({ id: nextId++, x: boss.x, y: boss.y + 6, z: boss.z, target: 'player', amount: 18 * blow, color: '#ff3c6e', opts: {}, fromPlayer: false }); }
   // Online, only the lowest-numbered player at the Crown raises thralls, so they are not doubled.
   if (boss.summon <= 0 && net.online && [...remotes.values()].some(r => r.id < net.id && Math.hypot(r.x - CROWN.x, r.z - CROWN.z) < 160)) boss.summon = 28;
   // At most three thralls at a time, so a long fight doesn't become a flood.
@@ -950,7 +952,7 @@ net.on('hit', m => {
   const c = creatures.find(o => o.id === m.id && !o.remote && o.hp > 0);
   if (!c) return;
   c.lastHitBy = m.from;
-  if (hurtCreature(c, m.amount, { poison: m.poison, slow: m.slow, root: m.root })) died(c);
+  if (hurtCreature(c, m.amount, { poison: m.poison, slow: m.slow, root: m.root, weaken: m.weaken })) died(c);
 });
 // A creature someone else ran has died; if our blow felled it, the spoils are ours.
 net.on('died', m => {

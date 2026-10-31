@@ -5,7 +5,7 @@ let nextId = 1;
 
 export function makeCreature(kind, x, z, extra = {}) {
   const b = CREATURE[kind];
-  return { id: nextId++, kind, x, z, y: 0, yaw: Math.random() * Math.PI * 2, hp: b.hp, maxHp: b.hp, state: 'wander', timer: 0, cooldown: 0, tx: x, tz: z, angry: false, walk: 0, hurt: 0, poison: 0, poisonDps: 0, slow: 0, root: 0, ...extra };
+  return { id: nextId++, kind, x, z, y: 0, yaw: Math.random() * Math.PI * 2, hp: b.hp, maxHp: b.hp, state: 'wander', timer: 0, cooldown: 0, tx: x, tz: z, angry: false, walk: 0, hurt: 0, poison: 0, poisonDps: 0, slow: 0, root: 0, weak: 0, ...extra };
 }
 
 // Pick a non-elite creature suited to the region, the danger level and the time of day.
@@ -23,10 +23,13 @@ function steer(c, heading, speed, dt, ground, fly) {
   return false;
 }
 
+// A creature under a withering curse strikes this hard.
+export const WEAKENED = .55;
+
 // Advance one creature. `bite(damage, creature)` hits the player. `wards` are points beasts avoid.
 export function updateCreature(c, player, ground, dt, night, bite, wards = [], random = Math.random) {
   const b = CREATURE[c.kind], dx = player.x - c.x, dz = player.z - c.z, d = Math.hypot(dx, dz), alive = player.hp > 0;
-  c.cooldown -= dt; c.timer -= dt; c.hurt = Math.max(0, c.hurt - dt); c.slow = Math.max(0, c.slow - dt); c.root = Math.max(0, c.root - dt);
+  c.cooldown -= dt; c.timer -= dt; c.hurt = Math.max(0, c.hurt - dt); c.slow = Math.max(0, c.slow - dt); c.root = Math.max(0, c.root - dt); c.weak = Math.max(0, (c.weak ?? 0) - dt);
   if (c.poison > 0) { c.poison -= dt; c.hp -= c.poisonDps * dt; }
 
   const ward = wards.find(w => Math.hypot(w.x - c.x, w.z - c.z) < 30);
@@ -46,7 +49,7 @@ export function updateCreature(c, player, ground, dt, night, bite, wards = [], r
   else if (c.state === 'chase') {
     heading = Math.atan2(dz, dx);
     if (d > reach * .8) speed = pace * .9;
-    if (d < reach + .6 && c.cooldown <= 0 && c.root <= 0) { c.cooldown = b.elite ? 1.6 : 1.3; bite(b.damage, c); }
+    if (d < reach + .6 && c.cooldown <= 0 && c.root <= 0) { c.cooldown = b.elite ? 1.6 : 1.3; bite(b.damage * (c.weak > 0 ? WEAKENED : 1), c); }
   } else {
     // Elites keep near their lair; others roam.
     if (c.timer <= 0) {
@@ -66,11 +69,12 @@ export function updateCreature(c, player, ground, dt, night, bite, wards = [], r
 }
 
 // Apply a hit. Returns true if the creature died.
-export function hurtCreature(c, damage, { poison = 0, slow = 0, root = 0 } = {}) {
+export function hurtCreature(c, damage, { poison = 0, slow = 0, root = 0, weaken = 0 } = {}) {
   c.hp -= damage; c.hurt = 3;
   if (poison) { c.poison = Math.max(c.poison, 5); c.poisonDps = Math.max(c.poisonDps, poison); }
   if (slow) c.slow = Math.max(c.slow, slow);
   if (root) c.root = Math.max(c.root, root);
+  if (weaken) c.weak = Math.max(c.weak ?? 0, weaken);
   if (CREATURE[c.kind].temper === 'provoked') { c.angry = true; c.state = 'chase'; }
   return c.hp <= 0;
 }

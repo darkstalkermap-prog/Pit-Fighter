@@ -4,7 +4,7 @@ import { createWorld, HALF, CELL, WATER, REGIONS, NODES, HUMAN_VILLAGE, WORLD_SI
 import { CLASSES, SPELLS, RECIPES, BUILDINGS, ITEMS, SELL, BUY } from './data.mjs';
 import { BESTIARY, CREATURE, HUMANS } from './bestiary.mjs';
 import * as R from './rules.mjs';
-import { makeCreature, updateCreature, hurtCreature, pickCreature, makeAlly, updateAlly } from './creatures.mjs';
+import { makeCreature, updateCreature, hurtCreature, pickCreature, makeAlly, updateAlly, WEAKENED } from './creatures.mjs';
 
 const world = createWorld(1337);
 const flat = () => 10;
@@ -223,6 +223,19 @@ test('hostile creatures hunt and bite; timid ones flee; provoked ones fight back
   hurtCreature(rooted, 1, { root: 5 });
   for (let i = 0; i < 60; i++) updateCreature(rooted, you, flat, 1 / 60, false, () => {});
   assert.equal(rooted.x, 10, 'rooted creatures stay put');
+});
+
+test('the Hex Witch\'s Withering Hex weakens what it curses', () => {
+  const you = { x: 0, z: 0, hp: 100 }, bites = kind => {
+    const wolf = makeCreature('wolf', 1, 0), hits = [];
+    if (kind) hurtCreature(wolf, 1, { weaken: SPELLS.wither.weaken });
+    for (let i = 0; i < 240; i++) updateCreature(wolf, you, flat, 1 / 60, false, d => hits.push(d));
+    return hits;
+  };
+  const plain = bites(false), cursed = bites(true);
+  assert.equal(cursed[0], plain[0] * WEAKENED, 'cursed bites land soft');
+  assert.ok(SPELLS.wither.weaken >= SPELLS.wither.cooldown, 'one cast keeps the curse up until the next');
+  assert.ok(CLASSES.hex.hp >= 100);
 });
 
 test('warding totems keep hostile beasts away', () => {

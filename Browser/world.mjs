@@ -54,10 +54,10 @@ class Perlin {
 
 // The four witch regions, by quadrant. `terrain` shapes the land: base height and hill amplitude.
 export const REGIONS = {
-  darkforest: { name: 'The Gloamwood', quadrant: [-1, -1], terrain: [34, 75], ground: [0.13, 0.17, 0.14] },
-  forest: { name: 'The Greenwood', quadrant: [1, -1], terrain: [30, 55], ground: [0.22, 0.38, 0.17] },
-  swamp: { name: 'The Mirefen', quadrant: [-1, 1], terrain: [5, 12], ground: [0.27, 0.31, 0.19] },
-  meadow: { name: 'Springvale Meadows', quadrant: [1, 1], terrain: [20, 32], ground: [0.47, 0.62, 0.3] },
+  darkforest: { name: 'The Gloamwood', quadrant: [-1, -1], terrain: [34, 75, 1.25], ground: [0.13, 0.17, 0.14] },
+  forest: { name: 'The Greenwood', quadrant: [1, -1], terrain: [30, 55, 1.1], ground: [0.22, 0.38, 0.17] },
+  swamp: { name: 'The Mirefen', quadrant: [-1, 1], terrain: [5, 12, .3], ground: [0.27, 0.31, 0.19] },
+  meadow: { name: 'Springvale Meadows', quadrant: [1, 1], terrain: [20, 32, .8], ground: [0.47, 0.62, 0.3] },
 };
 
 export const SURFACES = {
@@ -134,6 +134,7 @@ const LAIRS = { swamp: 'Wyrm\'s Wallow', darkforest: 'Mournhide Den', meadow: 'T
 
 export function createWorld(seed = 1337) {
   const base = new Perlin(seed), ridge = new Perlin(seed + 1), gaps = new Perlin(seed + 2), detail = new Perlin(seed + 3), warp = new Perlin(seed + 4), pools = new Perlin(seed + 5);
+  const hillMask = new Perlin(seed + 6), hills = new Perlin(seed + 7), crags = new Perlin(seed + 8);
 
   // Warped coordinates make region borders wander instead of following straight lines.
   // Written to scratch variables rather than returned as arrays: this runs millions of times.
@@ -148,7 +149,10 @@ export function createWorld(seed = 1337) {
   // so no witch is far from a drink. Each pond stays inside its own cell, so only that cell is checked. Every
   // hearth also has one of its own a short walk away.
   const POND_CELL = 420, hash = (i, j, k) => { const v = Math.sin(i * 127.1 + j * 311.7 + k * 74.7 + seed * .013) * 43758.5453; return v - Math.floor(v); };
-  const HEARTH_PONDS = Object.values(REGIONS).map(({ quadrant: [qx, qz] }) => [qx * (2500 * LAYOUT - 80), qz * (2500 * LAYOUT - 80)]);
+  const HEARTH_STARTS = Object.values(REGIONS).map(({ quadrant: [qx, qz] }) => [qx * 2500 * LAYOUT, qz * 2500 * LAYOUT]);
+  const HEARTH_PONDS = HEARTH_STARTS.map(([x, z]) => [x - Math.sign(x) * 80, z - Math.sign(z) * 80]);
+  // Where each land's two human villages are looked for (see below); the hills leave room for them there.
+  const VILLAGE_STARTS = Object.values(REGIONS).flatMap(({ quadrant: [qx, qz] }) => [[qx * 3300 * LAYOUT, qz * 1500 * LAYOUT], [qx * 1500 * LAYOUT, qz * 3300 * LAYOUT]]);
   const basin = (h, d, r, low) => d > r * 2.2 ? h : lerp(lerp(h, 1, (1 - smoothstep(r * 1.1, r * 2.2, d)) * low), -2.5, (1 - smoothstep(r * .55, r, d)) * low);
   function pond(x, z, h) {
     if (h > 70 || h < 1) return h;
@@ -174,6 +178,16 @@ export function createWorld(seed = 1337) {
     const crest = 1 - Math.abs(ridge.fbm(x * .0015, z * .0015, 4));
     h += (1 - smoothstep(0, 420, border)) * pass * (60 + crest * crest * 160) * (1 - smoothstep(1800, 4200, r));
     h += (1 - smoothstep(150, 1300, r)) * 300 * (.7 + crest * .3);
+    // Hills and mountains within each land. A slow mask chooses between open lowland (villages, ponds, easy
+    // going), rolling hill country and craggy ranges; the coast and the ground round each hearth stay gentle.
+    let gentle = 1 - smoothstep(HALF * .6, HALF * .78, Math.max(Math.abs(x), Math.abs(z)));
+    for (const [sx, sz] of HEARTH_STARTS) gentle *= smoothstep(160, 420, Math.hypot(x - sx, z - sz));
+    for (const [sx, sz] of VILLAGE_STARTS) gentle *= smoothstep(120, 320, Math.hypot(x - sx, z - sz));
+    const hilly = smoothstep(-.2, .3, hillMask.fbm(x * .0008, z * .0008, 2)) * mix(2) * gentle;
+    if (hilly > 0) {
+      const crag = 1 - Math.abs(crags.fbm(x * .0018, z * .0018, 3));
+      h += hilly * (10 + hills.fbm(x * .0035, z * .0035, 3) * 30 + crag ** 4 * 105 * hilly);
+    }
     h = pond(x, z, h);
     // Flat summit arena for the end boss.
     const summit = 1 - smoothstep(CROWN.radius, CROWN.radius + 60, r * LAYOUT);
@@ -280,8 +294,7 @@ export function createWorld(seed = 1337) {
   const level = (x, z) => { let lo = Infinity, hi = -Infinity; for (let a = 0; a < 6.28; a += .8) { const h = height(x + Math.cos(a) * 40, z + Math.sin(a) * 40); lo = Math.min(lo, h); hi = Math.max(hi, h); } return hi - lo < 14 && lo > 3; };
   for (const [id, reg] of Object.entries(REGIONS)) {
     const [qx, qz] = reg.quadrant;
-    [[qx * 3300, qz * 1500], [qx * 1500, qz * 3300]].forEach(([sx, sz], k) => {
-      sx *= LAYOUT; sz *= LAYOUT;
+    VILLAGE_STARTS.slice(Object.keys(REGIONS).indexOf(id) * 2, Object.keys(REGIONS).indexOf(id) * 2 + 2).forEach(([sx, sz], k) => {
       const spot = findLand(sx, sz, (h, x, z) => h > 4 && h < 90 && region(x, z) === id && level(x, z) && pois.every(p => Math.hypot(p.x - x, p.z - z) > 500 * LAYOUT));
       addPoi({ name: VILLAGE_NAMES[id][k], type: 'village', region: id, ...spot, layout: villageLayout(spot.x, spot.z, rng(hash(seed, 900, k, sx)) ) });
     });
